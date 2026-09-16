@@ -29,6 +29,7 @@ add_library(tmx_mod SHARED
   src/game.cpp
   src/hook.cpp
   src/http.cpp
+  src/log.cpp
   src/overlay.cpp
   src/worker.cpp
 

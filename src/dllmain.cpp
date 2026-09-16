@@ -9,20 +9,39 @@
 
 #include "config.h"
 #include "hook.h"
+#include "log.h"
 #include "overlay.h"
 #include "worker.h"
 
 namespace {
 
 DWORD WINAPI boot(LPVOID) {
+  char exe[MAX_PATH]{};
+  GetModuleFileNameA(nullptr, exe, MAX_PATH);
+  tmx::log::line("boot thread: host is %s", exe);
+
   tmx::config().load();
+  tmx::log::line("config: %s (site %s, token %s, toggle key 0x%02x)", tmx::config().path().c_str(),
+                 tmx::config().baseUrl.c_str(), tmx::config().token.empty() ? "none" : "present",
+                 tmx::config().toggleKey);
 
   // The overlay comes up whether or not the site is reachable, and the worker
   // runs whether or not the overlay ever gets a frame: a player with no network
   // still gets a working game, and a player on a build we cannot read still
   // gets a window that says so.
   tmx::worker::start();
-  tmx::hook::install();
+
+  // Retried rather than attempted once: the probe device this needs can fail
+  // while the game is still coming up, and a mod that gave up in the first
+  // second would be invisible for the whole session.
+  for (int attempt = 1; attempt <= 20; attempt++) {
+    if (tmx::hook::install()) {
+      tmx::log::line("hook installed on attempt %d", attempt);
+      return 0;
+    }
+    Sleep(1500);
+  }
+  tmx::log::line("hook NEVER installed - no overlay this session");
   return 0;
 }
 
@@ -38,6 +57,7 @@ DWORD WINAPI boot(LPVOID) {
 extern "C" __declspec(dllexport) BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
   switch (reason) {
     case DLL_PROCESS_ATTACH: {
+      tmx::log::line("DllMain: attached (module %p)", (void*)module);
       DisableThreadLibraryCalls(module);
       HANDLE thread = CreateThread(nullptr, 0, boot, nullptr, 0, nullptr);
       if (thread) CloseHandle(thread);

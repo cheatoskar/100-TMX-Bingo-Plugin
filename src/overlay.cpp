@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "config.h"
+#include "log.h"
 #include "imgui.h"
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
@@ -69,6 +70,7 @@ void setup(IDirect3DDevice9* device) {
 
   ImGui_ImplDX9_Init(device);
   g_ready = true;
+  log::line("overlay ready (window %p, subclassed %s)", (void*)g_window, g_originalWndProc ? "yes" : "NO");
 }
 
 void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0) {
@@ -372,7 +374,10 @@ void draw(IDirect3DDevice9* device) {
   // The toggle is read here rather than in the window procedure so it works
   // even when the game has swallowed the key.
   const bool down = (GetAsyncKeyState(config().toggleKey) & 0x8000) != 0;
-  if (down && !g_toggleHeld) g_uiOpen = !g_uiOpen;
+  if (down && !g_toggleHeld) {
+    g_uiOpen = !g_uiOpen;
+    log::line("toggle key: window %s", g_uiOpen ? "open" : "closed");
+  }
   g_toggleHeld = down;
 
   State state = shared().read();

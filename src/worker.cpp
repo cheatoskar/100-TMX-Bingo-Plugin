@@ -13,6 +13,7 @@
 #include "game.h"
 #include "http.h"
 #include "json.h"
+#include "log.h"
 #include "state.h"
 
 namespace tmx {
@@ -43,6 +44,7 @@ void toast(const std::string& text) {
 }
 
 void note(const std::string& what, const std::string& error = "") {
+  log::line("%s%s", what.c_str(), error.empty() ? "" : (" - " + error).c_str());
   shared().write([&](State& s) {
     s.lastCall = what;
     s.lastError = error;
@@ -362,6 +364,8 @@ void loop() {
   double lastBoardsRefresh = 0;
   double menuSince = 0;
 
+  log::line("worker: started (build %s, variant %s)", game::buildKey().c_str(),
+            game::variant().empty() ? "unknown" : game::variant().c_str());
   shared().write([](State& s) {
     s.linked = !config().token.empty();
     s.buildKey = game::buildKey();
@@ -428,9 +432,19 @@ void loop() {
     // Attaching is retried until it takes: the offsets can only be validated
     // while a map is loaded, so a player who starts the game and sits in the
     // menus attaches the moment they drive anything.
-    if (!game::attached()) game::attach();
+    if (!game::attached()) {
+      if (game::attach()) {
+        log::line("game: attached with profile '%s' (build %s)", game::attachedProfile().c_str(),
+                  game::buildKey().c_str());
+      } else {
+        log::once("attach", "game: no offset profile matches yet (build %s) - load a map and this retries",
+                  game::buildKey().c_str());
+      }
+    }
 
     game::Snapshot snap = game::read();
+    log::once("map", "game: %s%s", snap.inRace ? "on map uid " : "in the menus",
+              snap.inRace ? snap.uid.c_str() : "");
     shared().write([&](State& s) {
       s.attached = game::attached();
       s.profile = game::attachedProfile();

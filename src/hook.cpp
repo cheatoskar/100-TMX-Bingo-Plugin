@@ -13,6 +13,7 @@
 #include <d3d9.h>
 
 #include "hook.h"
+#include "log.h"
 #include "overlay.h"
 
 #pragma comment(lib, "d3d9.lib")
@@ -40,7 +41,13 @@ bool writePointer(void** slot, void* value) {
   return true;
 }
 
+bool g_drewOnce = false;
+
 HRESULT APIENTRY endSceneDetour(IDirect3DDevice9* device) {
+  if (!g_drewOnce) {
+    g_drewOnce = true;
+    log::line("first EndScene from the game - the overlay is live");
+  }
   // Everything the overlay does is bounded and local: it reads a copy of the
   // shared state and draws. It never waits on the network - that is the whole
   // reason the worker thread exists.
@@ -54,23 +61,51 @@ HRESULT APIENTRY resetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* pa
 }
 
 // A device that exists only to be asked where its methods live.
+//
+// Creating one is the fragile step of the whole mod, and it fails for reasons
+// that have nothing to do with the game: a driver that refuses a HAL device on
+// an invisible window, a session with no display, an adapter in a mode the
+// device cannot match. So it is not one attempt but a list of them, each logged
+// with its HRESULT - and the last one, NULLREF, needs no display at all and
+// exists precisely for tools that only want to read the vtable.
 IDirect3DDevice9* makeProbeDevice(IDirect3D9* d3d, HWND window) {
-  D3DPRESENT_PARAMETERS params{};
-  params.Windowed = TRUE;
-  params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-  params.hDeviceWindow = window;
-  params.BackBufferFormat = D3DFMT_UNKNOWN;
+  struct Attempt {
+    const char* name;
+    D3DDEVTYPE type;
+    bool useDesktopWindow;
+  };
+  const Attempt attempts[] = {
+      {"HAL", D3DDEVTYPE_HAL, false},
+      {"HAL on the desktop window", D3DDEVTYPE_HAL, true},
+      {"REF", D3DDEVTYPE_REF, false},
+      {"NULLREF", D3DDEVTYPE_NULLREF, false},
+  };
 
-  IDirect3DDevice9* device = nullptr;
-  HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window,
-                                 D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_NOWINDOWCHANGES, &params, &device);
-  if (FAILED(hr)) {
-    // Some drivers refuse a HAL device on a hidden window; a reference device
-    // has the same vtable, which is all that is being read here.
-    hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_REF, window,
-                           D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_NOWINDOWCHANGES, &params, &device);
+  for (const Attempt& attempt : attempts) {
+    HWND target = attempt.useDesktopWindow ? GetDesktopWindow() : window;
+
+    D3DPRESENT_PARAMETERS params{};
+    params.Windowed = TRUE;
+    params.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    params.hDeviceWindow = target;
+    params.BackBufferFormat = D3DFMT_UNKNOWN;
+    params.BackBufferWidth = 16;
+    params.BackBufferHeight = 16;
+
+    // FPU_PRESERVE matters more here than it looks: creating a device without
+    // it puts the whole process's FPU into single precision, and this is a game
+    // whose physics people measure in hundredths. The probe must leave no trace.
+    IDirect3DDevice9* device = nullptr;
+    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, attempt.type, target,
+                                   D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_NOWINDOWCHANGES | D3DCREATE_FPU_PRESERVE,
+                                   &params, &device);
+    if (SUCCEEDED(hr) && device) {
+      log::line("probe device: %s worked", attempt.name);
+      return device;
+    }
+    log::once(attempt.name, "probe device: %s failed (0x%08lx)", attempt.name, hr);
   }
-  return SUCCEEDED(hr) ? device : nullptr;
+  return nullptr;
 }
 
 }  // namespace
@@ -94,6 +129,7 @@ bool install() {
 
   bool done = false;
   IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION);
+  if (!d3d) log::once("d3d", "Direct3DCreate9 returned nothing - no D3D9 in this process yet");
   if (d3d) {
     if (IDirect3DDevice9* device = makeProbeDevice(d3d, window)) {
       g_vtable = *reinterpret_cast<void***>(device);
@@ -103,6 +139,8 @@ bool install() {
       done = writePointer(&g_vtable[kEndSceneIndex], reinterpret_cast<void*>(&endSceneDetour)) &&
              writePointer(&g_vtable[kResetIndex], reinterpret_cast<void*>(&resetDetour));
 
+      log::line("vtable %p: EndScene %p, Reset %p, patched %s", (void*)g_vtable, (void*)g_endScene,
+                (void*)g_reset, done ? "yes" : "NO");
       device->Release();
     }
     d3d->Release();
