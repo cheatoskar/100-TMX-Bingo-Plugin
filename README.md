@@ -5,9 +5,13 @@
 while you drive: your tiles, who holds the others, the time you have to beat -
 and a button that loads any of their maps without leaving the game.
 
-It also answers the question every map in the
-[100% TMX project](https://100tmx.com) raises the moment it loads: has anybody
-ever finished this one, and what is it worth?
+**You do not have to be part of any project to use it.** Make a board, send the
+link to three friends, and race them for the evening - the bingo half stands on
+its own.
+
+If you *are* chasing the [100% TMX project](https://100tmx.com), it also answers
+the question every map raises the moment it loads: has anybody ever finished
+this one, and what is it worth?
 
 ![The bingo panel and the settings window, in game](images/BingoIngame.png)
 
@@ -41,7 +45,7 @@ is playing.
 |---|---|
 | ![](images/BingoPageonSite.png) | ![](images/CreateBiingoSite.png) |
 
-**The project, while you drive**
+**The 100% project, if you are in it**
 
 - **Is this map still open?** Green means nobody has ever put a replay on it and
   it is worth finishing — with the ELO the project scores it at. Grey means it
@@ -68,6 +72,37 @@ replay uploaded to TMX and nothing else — that is the rule the whole archive i
 rebuilt from. The mod reports what you are playing and shows what the site
 knows; it is never evidence. Same for bingo: a tile is captured by a replay on
 TMX, checked server-side, or not at all.
+
+---
+
+## Play bingo with your friends
+
+A board is twenty-five TrackMania maps drawn at random from the exchanges. The
+first person to get a replay on a map takes that tile; a faster replay takes it
+back off them. Lines are worth extra, so the middle of the board matters.
+
+1. **Build one** at
+   [100tmx.com/events/bingo/new](https://100tmx.com/events/bingo/new). Choose
+   how many maps come from each exchange and how hard they should be, give it a
+   title and a length - an evening, a weekend, a fortnight.
+2. **Send the link.** The board is a URL. Anybody signed in who opens it can
+   enter: no invites, no setup, nothing to install on their side.
+3. **Drive a tile.** With this mod, the board is on screen while you play and
+   *Play this map* loads any tile straight into the game. Without it, the tile
+   links to the map on the exchange like any other.
+4. **Upload the replay to TMX**, then press *I uploaded it*. The site reads the
+   exchange and checks it - that is the only thing that captures a tile, from
+   the game or from the browser.
+5. **Watch it move.** Whoever holds a tile, and the time you would have to beat,
+   updates for everybody within seconds.
+
+There is a **weekly board** too, open to anyone, at
+[100tmx.com/events/bingo](https://100tmx.com/events/bingo) - and a *How it
+works* button on both pages if you would rather read it there.
+
+Worth knowing: a private board never feeds the weekly ladder, but it cannot opt
+out of the archive either. If you put the first ever replay on a map nobody had
+finished, that counts as a finish for the project, the way any replay would.
 
 ---
 
