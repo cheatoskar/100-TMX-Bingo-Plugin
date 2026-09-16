@@ -92,6 +92,8 @@ void Config::load() {
       else if (key == "corner") overlayCorner = atoi(value.c_str());
       else if (key == "scale") overlayScale = static_cast<float>(atof(value.c_str()));
       else if (key == "alpha") overlayAlpha = static_cast<float>(atof(value.c_str()));
+      else if (key == "x") overlayX = static_cast<float>(atof(value.c_str()));
+      else if (key == "y") overlayY = static_cast<float>(atof(value.c_str()));
       else if (key == "board") board = value;
       else if (key == "toggle_key") toggleKey = static_cast<int>(asAddress(value, static_cast<uintptr_t>(toggleKey)));
     } else if (section == "offsets") {
@@ -135,6 +137,8 @@ void Config::save() const {
        << "corner = " << overlayCorner << "\n"
        << "scale = " << overlayScale << "\n"
        << "alpha = " << overlayAlpha << "\n"
+       << "x = " << overlayX << "\n"
+       << "y = " << overlayY << "\n"
        << "board = " << board << "\n"
        << "toggle_key = " << toggleKey << "\n";
 }

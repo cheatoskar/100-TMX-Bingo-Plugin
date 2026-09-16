@@ -123,8 +123,12 @@ void startLink() {
         s.linked = true;
         s.userCode.clear();
         s.linkError.clear();
+        // Asked once, here, rather than left as a setting nobody finds: the
+        // player just deliberately connected, which is the moment the question
+        // makes sense. Still a question - connecting is not consent to publish.
+        s.askSharing = !config().shareWhatIAmPlaying;
       });
-      toast("This machine is connected.");
+      toast("Connected. Say whether to share what you are playing.");
       return;
     }
     if (status == "expired") break;

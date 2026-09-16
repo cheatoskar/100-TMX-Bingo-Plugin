@@ -2,6 +2,7 @@
 
 #include <d3d9.h>
 
+#include <chrono>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -31,6 +32,12 @@ const ImVec4 kDone(0.72f, 0.72f, 0.75f, 1.0f);
 const ImVec4 kMine(1.00f, 0.78f, 0.24f, 1.0f);
 const ImVec4 kWarn(0.95f, 0.55f, 0.35f, 1.0f);
 const ImVec4 kMuted(0.62f, 0.64f, 0.70f, 1.0f);
+
+// The same clock the worker ages toasts against, so a message set here is
+// cleared there on schedule instead of sticking to the panel forever.
+double nowSeconds() {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 std::string timeString(int ms) {
   if (ms <= 0) return "-";
@@ -223,21 +230,41 @@ void drawPanel(const State& state) {
   ImGuiIO& io = ImGui::GetIO();
   const float margin = 16.0f;
   const float width = 260.0f * config().overlayScale;
-  ImVec2 position(config().overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin, margin + 80.0f);
 
-  ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+  // Placed once per session: after that the window owns its own position, so a
+  // drag is not fought by a SetNextWindowPos on the very next frame. The saved
+  // position wins over the corner; the corner is only where it starts out.
+  static bool placed = false;
+  if (!placed) {
+    const bool saved = config().overlayX >= 0 && config().overlayY >= 0;
+    ImVec2 position = saved ? ImVec2(config().overlayX, config().overlayY)
+                            : ImVec2(config().overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin,
+                                     margin + 80.0f);
+    // Nudged back on screen if the resolution shrank since it was saved -
+    // a panel parked off the edge would look exactly like the mod being broken.
+    position.x = position.x < 0 ? margin : (position.x > io.DisplaySize.x - 60 ? io.DisplaySize.x - width - margin : position.x);
+    position.y = position.y < 0 ? margin : (position.y > io.DisplaySize.y - 40 ? margin : position.y);
+    ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+    placed = true;
+  }
   ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
   ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
 
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
                            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
                            ImGuiWindowFlags_NoNav;
   // Click-through until the panel is opened: while driving it is a readout, and
-  // a window that eats the mouse in a racing game is a bug, not a feature.
-  if (!g_uiOpen) flags |= ImGuiWindowFlags_NoInputs;
+  // a window that eats the mouse in a racing game is a bug, not a feature. That
+  // also means it can only be dragged with the window open, which is the only
+  // time somebody means to move it.
+  if (!g_uiOpen) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
 
   if (ImGui::Begin("##tmx-panel", nullptr, flags)) {
     ImGui::TextColored(kMine, "100%% TMX");
+    if (g_uiOpen) {
+      ImGui::SameLine();
+      ImGui::TextColored(kMuted, "(drag me)");
+    }
     ImGui::Separator();
     drawMapBlock(state);
     ImGui::Separator();
@@ -246,6 +273,15 @@ void drawPanel(const State& state) {
     if (!state.toast.empty()) {
       ImGui::Separator();
       ImGui::TextWrapped("%s", state.toast.c_str());
+    }
+
+    // Remembered when the drag ends rather than every frame: this writes a file.
+    const ImVec2 position = ImGui::GetWindowPos();
+    if (g_uiOpen && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+        (position.x != config().overlayX || position.y != config().overlayY)) {
+      config().overlayX = position.x;
+      config().overlayY = position.y;
+      config().save();
     }
   }
   ImGui::End();
@@ -293,6 +329,22 @@ void drawSettings(const State& state) {
         ImGui::PopStyleColor();
         ImGui::TextColored(kMuted, "The browser should already be open on that page.");
         if (ImGui::Button("Cancel")) pushCommand(Command::Kind::CancelLink);
+      } else if (state.linked && state.askSharing) {
+        ImGui::TextColored(kOpen, "This machine is connected.");
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "Show the map you are on as being played, on the remaining list? Only the map's id is sent, and you can "
+            "turn it off at any time.");
+        if (ImGui::Button("Yes, share what I am playing")) {
+          config().shareWhatIAmPlaying = true;
+          config().save();
+          shared().write([](State& s) { s.askSharing = false; });
+          pushCommand(Command::Kind::ReportNow);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Not now")) {
+          shared().write([](State& s) { s.askSharing = false; });
+        }
       } else if (state.linked) {
         ImGui::TextColored(kOpen, "This machine is connected.");
         ImGui::TextWrapped("It speaks for the account you approved it with. Disconnect here or on the website.");
@@ -329,15 +381,17 @@ void drawSettings(const State& state) {
         config().save();
       }
 
-      int corner = config().overlayCorner;
-      if (ImGui::RadioButton("Left", corner == 0)) {
-        config().overlayCorner = 0;
+      ImGui::TextColored(kMuted, "Drag the panel with this window open.");
+      if (ImGui::Button("Reset its position")) {
+        config().overlayX = -1.0f;
+        config().overlayY = -1.0f;
         config().save();
-      }
-      ImGui::SameLine();
-      if (ImGui::RadioButton("Right", corner == 1)) {
-        config().overlayCorner = 1;
-        config().save();
+        // Takes effect on the next start, because the window owns its position
+        // for the life of the session - said plainly rather than left puzzling.
+        shared().write([](State& s) {
+          s.toast = "Position cleared - it moves back next time the game starts.";
+          s.toastUntil = nowSeconds() + 8.0;
+        });
       }
 
       float scale = config().overlayScale;

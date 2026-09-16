@@ -98,6 +98,8 @@ struct State {
   std::string userCode;
   std::string verifyUrl;
   std::string linkError;
+  /** Set right after a machine is linked, so the sharing question is asked once. */
+  bool askSharing = false;
 
   // ------------------------------------------------------------- the site
   MapStatus map;
