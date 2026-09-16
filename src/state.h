@@ -68,6 +68,12 @@ struct BoardView {
 };
 
 // The current map's place on a board the player is in.
+/** Somebody else with this map marked as being played, right now. */
+struct AlsoHere {
+  std::string name;
+  std::string since;
+};
+
 struct BoardHit {
   std::string boardId;
   std::string title;
@@ -104,6 +110,7 @@ struct State {
   // ------------------------------------------------------------- the site
   MapStatus map;
   std::vector<BoardHit> hits;
+  std::vector<AlsoHere> alsoHere;
   std::vector<BoardSummary> boards;
   BoardView board;
   std::string lastCall;     // "reported the map", "checked tile 7", …

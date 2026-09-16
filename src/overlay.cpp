@@ -29,6 +29,10 @@ WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
 const ImVec4 kOpen(0.36f, 0.78f, 0.44f, 1.0f);
+// Red for a tile somebody else has taken, green for one still going: the two
+// states you scan the grid for. Gold stays for your own, because "taken" and
+// "taken by me" are not the same news.
+const ImVec4 kTaken(0.91f, 0.35f, 0.35f, 1.0f);
 const ImVec4 kDone(0.72f, 0.72f, 0.75f, 1.0f);
 const ImVec4 kMine(1.00f, 0.78f, 0.24f, 1.0f);
 const ImVec4 kWarn(0.95f, 0.55f, 0.35f, 1.0f);
@@ -144,6 +148,13 @@ void drawMapBlock(const State& state) {
     ImGui::TextColored(kMuted, "Sharing is off");
   }
 
+  // Somebody else has this map marked. Not a warning - two people on one map is
+  // allowed and always was - but it is the thing you would want to know before
+  // spending the evening on it.
+  for (const AlsoHere& other : state.alsoHere) {
+    ImGui::TextColored(kWarn, "also here: %s", other.name.empty() ? "another player" : other.name.c_str());
+  }
+
   for (const BoardHit& hit : state.hits) {
     ImGui::Separator();
     ImGui::TextColored(kMine, "Tile %d on %s", hit.idx + 1,
@@ -179,7 +190,7 @@ void drawBoard(const State& state) {
   for (const Tile& tile : board.tiles) {
     if (tile.idx % size != 0) ImGui::SameLine();
 
-    ImVec4 colour = tile.held ? (tile.mine ? kMine : kDone) : kOpen;
+    ImVec4 colour = tile.held ? (tile.mine ? kMine : kTaken) : kOpen;
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(colour.x * 0.35f, colour.y * 0.35f, colour.z * 0.35f, 0.85f));
     ImGui::PushStyleColor(ImGuiCol_Text, colour);
 
@@ -214,7 +225,7 @@ void drawBoard(const State& state) {
       ImGui::TextColored(kMuted, "%s #%d%s", tile.exchange.c_str(), tile.trackId,
                          tile.hasRecord ? " - already has a replay" : " - never finished");
       if (tile.held) {
-        ImGui::TextColored(tile.mine ? kMine : kDone, "%s holds it at %s",
+        ImGui::TextColored(tile.mine ? kMine : kTaken, "%s holds it at %s",
                            tile.mine ? "you" : tile.holderName.c_str(), timeString(tile.holderTime).c_str());
       }
       if (g_uiOpen) {
@@ -251,7 +262,10 @@ void drawPanel(const State& state) {
   ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
   ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
 
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+  // A title bar rather than a bare box: it is what you grab to move it and
+  // what you click to fold it away, and it is the same shape as the settings
+  // window, so there is one idea to learn instead of two.
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
                            ImGuiWindowFlags_NoNav;
   // Click-through until the panel is opened: while driving it is a readout, and
@@ -260,13 +274,7 @@ void drawPanel(const State& state) {
   // time somebody means to move it.
   if (!g_uiOpen) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
 
-  if (ImGui::Begin("##tmx-panel", nullptr, flags)) {
-    ImGui::TextColored(kMine, "100%% TMX");
-    if (g_uiOpen) {
-      ImGui::SameLine();
-      ImGui::TextColored(kMuted, "(drag me)");
-    }
-    ImGui::Separator();
+  if (ImGui::Begin("100% TMX + Bingo###tmx-panel", nullptr, flags)) {
     drawMapBlock(state);
     ImGui::Separator();
     drawBoard(state);

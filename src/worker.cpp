@@ -169,6 +169,11 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
   map.claimed = claim && !claim->isNull();
   map.refused = data.str("refused");
 
+  std::vector<AlsoHere> alsoHere;
+  if (const Json* others = data.child("alsoHere"); others && others->type == Json::Type::Array) {
+    for (const Json& o : others->array) alsoHere.push_back({o.str("name"), o.str("since")});
+  }
+
   std::vector<BoardHit> hits;
   const Json* boards = data.child("boards");
   if (boards && boards->type == Json::Type::Array) {
@@ -191,6 +196,7 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
   shared().write([&](State& s) {
     s.map = map;
     s.hits = hits;
+    s.alsoHere = alsoHere;
   });
 }
 
@@ -302,7 +308,33 @@ void loadBoard(const std::string& id) {
   }
 
   view.loaded = !view.id.empty();
-  shared().write([&](State& s) { s.board = view; });
+
+  // What changed since the last look. The board is a shared thing - somebody
+  // taking a tile you were about to drive is the single most useful thing the
+  // panel can tell you, and it is invisible unless the difference is noticed
+  // here.
+  shared().write([&](State& s) {
+    if (s.board.loaded && s.board.id == view.id) {
+      for (const Tile& now : view.tiles) {
+        const Tile* before = nullptr;
+        for (const Tile& old : s.board.tiles) {
+          if (old.idx == now.idx) {
+            before = &old;
+            break;
+          }
+        }
+        if (!before) continue;
+        const bool taken = now.held && (!before->held || before->holderName != now.holderName);
+        if (taken && !now.mine) {
+          s.toast = "Tile " + std::to_string(now.idx + 1) + " taken by " +
+                    (now.holderName.empty() ? std::string("somebody") : now.holderName);
+          s.toastUntil = nowSeconds() + 12.0;
+          log::line("%s", s.toast.c_str());
+        }
+      }
+    }
+    s.board = view;
+  });
   note("board up to date");
 }
 
@@ -503,7 +535,7 @@ void loop() {
       lastBoardsRefresh = now;
       loadBoards();
     }
-    if (linked && !config().board.empty() && now - lastBoardRefresh > 45) {
+    if (linked && !config().board.empty() && now - lastBoardRefresh > 20) {
       lastBoardRefresh = now;
       loadBoard(config().board);
     }
