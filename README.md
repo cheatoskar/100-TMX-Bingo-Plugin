@@ -1,50 +1,53 @@
-# 100% TMX — the game mod
+# 100% TMX + Bingo
 
-An in-game overlay for **TrackMania Nations Forever** and **TrackMania United
-Forever** that connects the game to [100tmx.com](https://100tmx.com).
+**Bingo, in the game.** An overlay for **TrackMania Nations Forever** and
+**TrackMania United Forever** that puts the boards you are playing on screen
+while you drive: your tiles, who holds the others, the time you have to beat -
+and a button that loads any of their maps without leaving the game.
 
-Load a map and the panel tells you whether anybody has ever finished it, what it
-is worth, and whether it is a tile on one of your bingo boards — then lets you
-start the next map without leaving the game.
+It also answers the question every map in the
+[100% TMX project](https://100tmx.com) raises the moment it loads: has anybody
+ever finished this one, and what is it worth?
 
-> **Status: early.** v0.1.0 builds clean and loads without crashing, but it has
-> not been through a session of real play yet. If the panel says *"This TrackMania build is not recognised"*,
-> see [Unrecognised build](#unrecognised-build) — it is a five-minute fix and a
+> **Status: early.** v0.1.0 runs, and has been through a real session on
+> Nations Forever. If the panel says a build is not recognised, see
+> [Unrecognised build](#unrecognised-build) - that is a five-minute fix and a
 > useful bug report.
 
 ---
 
 ## Features
 
-**While you drive**
+**Bingo**
+
+- **Every board you are in**, weekly and private, in a picker. Choose one and
+  the panel keeps it on screen while you drive.
+- **The grid, colour-coded** — yours, somebody else's, still open — with the
+  tile you are standing on outlined.
+- **The time to beat** on every tile, and who holds it. No alt-tabbing to check
+  whether that run was good enough.
+- **Play this map**: hands the running game a TMX ManiaCode, which downloads the
+  map and starts it. Pick a tile, drive it, next.
+- **"I uploaded it"**: after you put the replay on TMX, one button asks the site
+  to check the tile. The site reads TMX and believes only that.
+
+**The project, while you drive**
 
 - **Is this map still open?** Green means nobody has ever put a replay on it and
   it is worth finishing — with the ELO the project scores it at. Grey means it
   is done, and names who got it.
 - **Your mark on the remaining list.** The map you are on shows as *being
   played* on the website, so two people do not spend an evening on the same map
-  by accident. It expires after two hours by itself, and it is a courtesy
-  signal, never a reservation — anybody may still drive the same map.
+  by accident. It expires after two hours by itself, drops the moment you leave
+  the map, and it is a courtesy signal, never a reservation.
 - **Excluded maps are called out** before you waste a run on one.
-
-**Bingo, as a mode**
-
-- **Every board you are in**, weekly and private, in a picker. Choose one and
-  the panel keeps it on screen.
-- **The grid, colour-coded** — yours, somebody else's, still open — with the
-  tile you are standing on outlined.
-- **The time to beat** on every tile, and who holds it.
-- **Play this map**: hands the running game a TMX ManiaCode, which downloads the
-  map and starts it. No alt-tab, no browser, no file wrangling.
-- **"I uploaded it"**: after you put the replay on TMX, one button asks the site
-  to check the tile. The site reads TMX and believes only that.
 
 **Everything else**
 
 - **Settings in-game** (F9): connect or disconnect, the sharing switch, panel
   side, size and opacity.
-- **Off by default.** Nothing is sent until you connect a machine *and* turn
-  sharing on.
+- **Nothing is sent until you say so.** Connecting a machine is one deliberate
+  act; sharing what you play is a separate question, asked once, right after.
 - **Nothing is written to the game.** The mod only reads, and it never patches,
   injects into, or modifies TrackMania itself.
 
@@ -60,28 +63,25 @@ TMX, checked server-side, or not at all.
 
 ## Installing
 
-You need TrackMania Forever and one of the two loaders below. **Take the DLL
-from [Releases](../../releases)** — `100TMX.dll` (and `100TMX.asi`, which is the
-same file under the other name).
+You need the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/)
+first — it is what loads mods into the game. (Your antivirus may flag it; it
+injects DLLs, which is what a mod loader does.)
 
-### With TrackMania ModLoader (easiest)
+### The installer (one file, one click)
 
-The ModLoader has **no "mods folder"**. It keeps a product database under
-`%LOCALAPPDATA%\TMLoader`, one folder per mod and one per version inside it,
-each with a small `description.yaml`. The script does that for you:
+1. Download **`100TMX-Installer.exe`** from [Releases](../../releases/latest).
+2. Run it. The mod is inside it — there is nothing to unzip and no folder to
+   find.
+3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
-1. Install the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/) if
-   you do not have it. (Your antivirus may flag it — it injects DLLs, which is
-   what a mod loader does.)
-2. Put `100TMX.dll` and `install-modloader.ps1` in the same folder and run:
+`100TMX-Installer.exe /uninstall` removes it again; `/quiet` installs without
+the dialog.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File install-modloader.ps1
-   ```
+<details>
+<summary>What it writes, for the suspicious (rightly so — it is a .exe)</summary>
 
-3. Open the ModLoader, tick **100TMX**, and start the game.
-
-By hand, if you prefer, it is three files:
+The ModLoader has no "mods folder". It keeps a product database, and installing
+means three files in it:
 
 ```
 %LOCALAPPDATA%\TMLoader\database\TmForever\products\100TMX\
@@ -90,11 +90,17 @@ By hand, if you prefer, it is three files:
     0.1.0\100TMX.dll
 ```
 
+Nothing else is touched: no registry, no game folder, no startup entry. The
+PowerShell script `install-modloader.ps1` in this repo does exactly the same
+thing in plain text if you would rather read it than trust it, and the
+installer's source is [`installer/main.cpp`](installer/main.cpp).
+</details>
+
 ### With an ASI loader (no ModLoader)
 
-1. Get the 32-bit [Ultimate ASI
-   Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) build named
-   `binkw32.dll`.
+1. Take `100TMX.asi` from [Releases](../../releases/latest) and get the 32-bit
+   [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
+   build named `binkw32.dll`.
 2. In your TrackMania folder, rename the existing `binkw32.dll` to
    `binkw32Hooked.dll`, then drop the loader's `binkw32.dll` in its place.
 3. Put `100TMX.asi` next to `TmForever.exe`.
@@ -124,14 +130,15 @@ immediately.
 
 | Key | Does |
 |---|---|
-| **F9** | open/close the window (also makes the panel clickable) |
+| **F9** | open/close the window (and makes the panel clickable and draggable) |
 
 While the window is closed the panel is a read-out and clicks go to the game, so
 it cannot get in the way of a run.
 
 **Boards** tab: pick the board the panel shows.
 **Connection** tab: connect, disconnect, or see the pending code.
-**Settings** tab: sharing, panel side, size, opacity.
+**Settings** tab: sharing, panel size and opacity. The panel itself is dragged
+with the window open.
 **Status** tab: your game build, whether the offsets were recognised, the UID of
 the loaded map, and the last thing the mod did. Quote this tab in bug reports.
 
@@ -186,7 +193,8 @@ cmake -S . -B build -A Win32
 cmake --build build --config Release
 ```
 
-Output: `build/Release/100TMX.dll`, copied alongside as `100TMX.asi`.
+Output: `build/Release/100TMX.dll`, the same bytes as `100TMX.asi`, and
+`100TMX-Installer.exe` with the DLL embedded in it.
 Dear ImGui is fetched at configure time and pinned; the runtime is linked
 statically, so there is no redistributable to install.
 

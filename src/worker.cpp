@@ -486,11 +486,12 @@ void loop() {
         report(snap.uid, "driving");
       }
     } else if (linked && !snap.inRace && !lastUid.empty()) {
-      // Ten seconds of menus before releasing: loading the next map passes
-      // through the menus, and releasing a mark to take it straight back would
-      // make the remaining list flicker for everybody watching it.
+      // Two seconds, not none: loading the next map passes through a moment
+      // where no challenge is loaded, and releasing a mark only to take it
+      // straight back would flicker on the remaining list for everybody
+      // watching. Past that, leaving a map really is leaving it.
       if (menuSince == 0) menuSince = now;
-      if (now - menuSince > 10) {
+      if (now - menuSince > 2) {
         lastUid.clear();
         menuSince = 0;
         report("", "menu");
@@ -527,6 +528,15 @@ void start() {
 void stop() {
   if (!g_running.exchange(false)) return;
   if (g_thread.joinable()) g_thread.join();
+}
+
+void releaseNow() {
+  if (config().token.empty()) return;
+  log::line("releasing marks - the game is closing");
+  // Deliberately synchronous and deliberately short: this runs on the game's
+  // own thread as its window closes, and a mark left standing would sit on the
+  // remaining list for two hours telling people a lie.
+  request("POST", config().baseUrl + "/api/game/idle", "{}", config().token, true, 1500);
 }
 
 void signalStop() {

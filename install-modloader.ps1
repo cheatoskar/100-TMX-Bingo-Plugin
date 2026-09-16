@@ -36,11 +36,11 @@ New-Item -ItemType Directory -Force -Path $target | Out-Null
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 [System.IO.File]::WriteAllText("$product\description.yaml", @"
-name: 100TMX
+name: 100% TMX + Bingo
 author: cheatoskar
 type: modification
 homepage: 'https://100tmx.com/'
-description: 'Shows whether the map you are on is still open for the 100% TMX project, what it is worth, and the bingo boards you are in - with a button that starts any of their maps.'
+description: 'Bingo boards on screen while you drive - your tiles, the time to beat, and a button that starts any of their maps. Plus: is this map still open for the 100% TMX project, what is it worth, who finished it.'
 "@, $utf8)
 
 # CoreMod is what actually loads mod DLLs into the game, so it is a real
@@ -50,7 +50,7 @@ executable: 100TMX.dll
 dependencies:
   - id: CoreMod
     version: ^1.0.1
-changelog: '- Map status, map marks, and the bingo panel.'
+changelog: '- The bingo panel, map status, and map marks.'
 "@, $utf8)
 
 Copy-Item $Dll "$target\100TMX.dll" -Force

@@ -13,6 +13,7 @@
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 #include "state.h"
+#include "worker.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -473,6 +474,18 @@ void shutdown() {
 }
 
 LRESULT CALLBACK wndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  // The one reliable notice that the game is going away. DllMain's detach is
+  // too late and too dangerous for a network call - it runs under the loader
+  // lock - so the mark is dropped here, while there is still a normal thread
+  // and a normal message loop.
+  if (message == WM_CLOSE || message == WM_DESTROY) {
+    static bool released = false;
+    if (!released) {
+      released = true;
+      worker::releaseNow();
+    }
+  }
+
   if (g_ready && g_uiOpen) {
     ImGui_ImplWin32_WndProcHandler(window, message, wparam, lparam);
     ImGuiIO& io = ImGui::GetIO();

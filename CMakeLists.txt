@@ -69,3 +69,35 @@ add_custom_command(TARGET tmx_mod POST_BUILD
           $<TARGET_FILE_DIR:tmx_mod>/100TMX.asi
   COMMENT "Copying 100TMX.dll to 100TMX.asi"
 )
+
+# ---------------------------------------------------------------------------
+# The installer.
+#
+# One .exe that carries the DLL inside it and writes the three files the
+# ModLoader's product database wants. The DLL is embedded as a resource, so the
+# resource script has to be generated after the mod is built - `file(GENERATE)`
+# rather than `configure_file`, because the path is only known per configuration.
+# ---------------------------------------------------------------------------
+file(GENERATE
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
+  CONTENT "#include \"resource.h\"
+101 RCDATA \"$<TARGET_FILE:tmx_mod>\"
+"
+)
+
+add_executable(tmx_installer WIN32
+  installer/main.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
+)
+add_dependencies(tmx_installer tmx_mod)
+
+target_include_directories(tmx_installer PRIVATE installer)
+set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
+             PROPERTY INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/installer)
+
+target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_compile_options(tmx_installer PRIVATE /W4 /EHsc)
+
+set_target_properties(tmx_installer PROPERTIES
+  OUTPUT_NAME "100TMX-Installer"
+)
