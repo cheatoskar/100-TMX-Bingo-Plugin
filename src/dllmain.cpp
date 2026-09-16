@@ -28,7 +28,14 @@ DWORD WINAPI boot(LPVOID) {
 
 }  // namespace
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+// Exported, not only used as the entry point.
+//
+// Every mod the TrackMania ModLoader ships - TMUnlimiter, TMInterface, the
+// Competition Patch - exports `_DllMain@12`, and a mod that does not fails to
+// start the game with a bare 0xc000007b box. The CRT still calls this through
+// _DllMainCRTStartup as usual; the export is there so the loader can find it
+// by name.
+extern "C" __declspec(dllexport) BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
   switch (reason) {
     case DLL_PROCESS_ATTACH: {
       DisableThreadLibraryCalls(module);
