@@ -44,6 +44,8 @@ struct Offsets {
   uintptr_t playerSub = 0;
   uintptr_t playerState = 0;
   uintptr_t playerTime = 0;
+  uintptr_t playerCheckpoints = 0;   // checkpoints passed this run
+  uintptr_t challengeBlocks = 0;     // the map's checkpoint buffer; its size is the count
 };
 
 enum class RaceState { Unknown = -1, BeforeStart = 0, Running = 1, Finished = 2 };
@@ -55,6 +57,8 @@ struct Snapshot {
   std::string mapName;
   RaceState state = RaceState::Unknown;
   int raceTimeMs = -1;        // -1 when it could not be read
+  int checkpoint = -1;        // passed so far this run
+  int checkpoints = -1;       // on the map
 };
 
 // The built-in profiles, plus whatever the ini added.

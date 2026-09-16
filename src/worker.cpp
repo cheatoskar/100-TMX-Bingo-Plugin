@@ -202,12 +202,18 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
   });
 }
 
-void report(const std::string& uid, const std::string& state) {
+void report(const std::string& uid, const std::string& state, int checkpoint = -1, int checkpoints = -1) {
   if (config().token.empty()) return;
 
+  // The checkpoint count rides along with the report it was already making.
+  // It is what turns "somebody is on this map" into "somebody is three
+  // checkpoints in", and it costs nothing extra to send.
   std::string body = "{\"uid\":" + Json::quote(uid) + ",\"game\":" + Json::quote(game::variant()) +
                      ",\"state\":" + Json::quote(state) +
-                     ",\"track\":" + (config().shareWhatIAmPlaying ? "true" : "false") + "}";
+                     ",\"track\":" + (config().shareWhatIAmPlaying ? "true" : "false");
+  if (checkpoint >= 0) body += ",\"checkpoint\":" + std::to_string(checkpoint);
+  if (checkpoints >= 0) body += ",\"checkpoints\":" + std::to_string(checkpoints);
+  body += "}";
 
   Response res = post(url("/api/game/now-playing"), body, config().token);
   if (!res.ok) {
@@ -586,10 +592,14 @@ void loop() {
       menuSince = 0;
       // A new map, or the mark is old enough to be worth refreshing. The claim
       // lasts two hours on the site, so five minutes is unhurried.
-      if (snap.uid != lastUid || now - lastReport > 300) {
+      // Every minute rather than every five: the mark now expires in four, so
+      // that a game that dies without saying goodbye stops claiming a map
+      // within minutes instead of hours - and the checkpoint it carries is only
+      // worth showing if it is roughly current.
+      if (snap.uid != lastUid || now - lastReport > 60) {
         lastUid = snap.uid;
         lastReport = now;
-        report(snap.uid, "driving");
+        report(snap.uid, "driving", snap.checkpoint, snap.checkpoints);
       }
     } else if (linked && !snap.inRace && !lastUid.empty()) {
       // Two seconds, not none: loading the next map passes through a moment

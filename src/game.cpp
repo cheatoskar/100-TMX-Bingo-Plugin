@@ -141,6 +141,8 @@ Offsets baseProfile(const char* name, uintptr_t idNameExtra) {
   o.playerSub = 0x1C;
   o.playerState = 0x314;
   o.playerTime = 0x2B0;
+  o.playerCheckpoints = 0x330;
+  o.challengeBlocks = 0x60;
   return o;
 }
 
@@ -270,6 +272,18 @@ Snapshot read() {
   }
   int time = 0;
   if (readAt<int>(sub + o.playerTime, &time)) snap.raceTimeMs = time;
+
+  // How far through the lap. The map's own total is the size of its checkpoint
+  // buffer, which is a CFastBuffer - size first, then the pointer - so the
+  // count is readable without following anything.
+  int passed = 0;
+  if (readAt<int>(sub + o.playerCheckpoints, &passed) && passed >= 0 && passed < 1000) {
+    snap.checkpoint = passed;
+  }
+  unsigned int total = 0;
+  if (readAt<unsigned int>(challenge + o.challengeBlocks, &total) && total < 1000) {
+    snap.checkpoints = static_cast<int>(total);
+  }
 
   return snap;
 }
