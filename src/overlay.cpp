@@ -128,6 +128,10 @@ void drawMapBlock(const State& state) {
     ImGui::TextColored(kOpen, "Still open - worth %d", map.score);
   } else if (map.excluded == 1) {
     ImGui::TextColored(kWarn, "On the exclusion list");
+  } else if (map.justFinished) {
+    ImGui::TextColored(kTaken, "Just finished%s%s", map.justFinishedBy.empty() ? "" : " by ",
+                       map.justFinishedBy.c_str());
+    ImGui::TextWrapped("TMX has a replay on it now - it is no longer worth the run.");
   } else if (map.open == 0) {
     if (map.finishedBy.empty()) {
       ImGui::TextColored(kDone, "Already finished");

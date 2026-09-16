@@ -32,6 +32,9 @@ struct MapStatus {
   std::string finishedAt;
   bool claimed = false;      // a mark is standing for this map
   std::string refused;       // why no mark was taken, when that happened
+  /** Set when TMX itself was asked and said somebody has just finished this map. */
+  bool justFinished = false;
+  std::string justFinishedBy;
 };
 
 struct BoardSummary {

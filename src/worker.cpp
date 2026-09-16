@@ -230,6 +230,37 @@ void report(const std::string& uid, const std::string& state) {
   note(state == "menu" ? "back in the menus" : "reported the map");
 }
 
+// "Somebody has just taken this map."
+//
+// The catalogue only learns that from the hourly sync, which is far too slow
+// for a person who is on the map right now - so this asks the site's live
+// check, which reads TMX itself. Only ever for a map the catalogue still thinks
+// is open, and only every few minutes: it spends somebody else's API budget.
+void checkStillOpen(const std::string& site, int trackId) {
+  if (site.empty() || trackId <= 0) return;
+
+  Response res = get(url("/api/" + site + "/map/" + std::to_string(trackId) + "/replay-check"), config().token);
+  if (!res.ok || res.status != 200) return;
+
+  Json data = Json::parse(res.body);
+  if (!data.flag("ok") || !data.flag("finished")) return;
+
+  std::string who;
+  if (const Json* first = data.child("first"); first && !first->isNull()) who = first->str("name");
+
+  shared().write([&](State& s) {
+    if (s.map.trackId != trackId) return;   // they have moved on since
+    s.map.open = 0;
+    s.map.justFinished = true;
+    s.map.justFinishedBy = who;
+    s.map.finishedBy = who;
+    s.toast = who.empty() ? "This map has just been finished by somebody else."
+                          : "This map has just been finished by " + who + ".";
+    s.toastUntil = nowSeconds() + 20.0;
+  });
+  log::line("TMX says this map has just been finished%s%s", who.empty() ? "" : " by ", who.c_str());
+}
+
 void clearMap() {
   shared().write([](State& s) {
     s.map = MapStatus();
@@ -398,6 +429,7 @@ void loop() {
   const double startedAt = nowSeconds();
   std::string lastUid;
   double lastReport = 0;
+  double lastOpenCheck = 0;
   double lastBoardRefresh = 0;
   double lastBoardsRefresh = 0;
   double menuSince = 0;
@@ -528,6 +560,18 @@ void loop() {
         menuSince = 0;
         report("", "menu");
         clearMap();
+      }
+    }
+
+    // While you are on a map that is still open, ask TMX every three minutes
+    // whether it still is. This is the endgame: a map can fall while somebody
+    // is mid-run on it, and finding that out an hour later is finding it out
+    // too late.
+    if (linked && snap.inRace && now - lastOpenCheck > 180) {
+      State view = shared().read();
+      if (view.map.open == 1 && !view.map.site.empty()) {
+        lastOpenCheck = now;
+        checkStillOpen(view.map.site, view.map.trackId);
       }
     }
 
