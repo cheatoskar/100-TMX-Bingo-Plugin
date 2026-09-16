@@ -79,29 +79,45 @@ TMX, checked server-side, or not at all.
 
 ## Play bingo with your friends
 
-A board is twenty-five TrackMania maps drawn at random from the exchanges. The
-first person to get a replay on a map takes that tile; a faster replay takes it
-back off them. Lines are worth extra, so the middle of the board matters.
+A board is twenty-five TrackMania maps drawn at random from the exchanges. You
+take a tile by putting a replay on the map; somebody faster takes it back off
+you. Full rows, columns and diagonals are worth extra. It is played in Nations
+or United Forever, and needs nothing from the 100% project.
 
-1. **Build one** at
-   [100tmx.com/events/bingo/new](https://100tmx.com/events/bingo/new). Choose
-   how many maps come from each exchange and how hard they should be, give it a
-   title and a length - an evening, a weekend, a fortnight.
-2. **Send the link.** The board is a URL. Anybody signed in who opens it can
-   enter: no invites, no setup, nothing to install on their side.
-3. **Drive a tile.** With this mod, the board is on screen while you play and
-   *Play this map* loads any tile straight into the game. Without it, the tile
-   links to the map on the exchange like any other.
+### First time here
+
+Three things before a board means anything, and each exists for a reason:
+
+1. **Sign in at [100tmx.com](https://100tmx.com) with Discord.** One click, and
+   the only thing asked of Discord is your name and avatar. A board has to know
+   who took which tile, so this is what lets you enter one at all.
+2. **Link your TrackMania Exchange account** - the one-minute guide is at
+   [100tmx.com/guide/accounts](https://100tmx.com/guide/accounts). A tile is
+   captured by a replay *on the exchange*, so the site has to know which account
+   there is yours before it can check one. Without this you can watch a board
+   but not take anything on it.
+3. **The mod is optional.** Everything works in a browser; the overlay only
+   saves the alt-tabbing. If you do want it, install it as above and connect it
+   at [100tmx.com/link](https://100tmx.com/link).
+
+### Playing
+
+1. **Get a board.** Enter [this week's](https://100tmx.com/events/bingo), which
+   is open to anyone, or [build your own](https://100tmx.com/events/bingo/new):
+   choose how many maps come from each exchange and how hard they should be,
+   give it a length - an evening, a weekend, a fortnight - and send the link.
+   Anybody signed in who opens it can enter.
+2. **Enter it.** One button, and it is what puts you on the standing.
+3. **Drive a tile.** Each one is a real map: open it, take it from the exchange,
+   drive it. With the mod, *Play this map* loads it straight into the game.
 4. **Upload the replay to TMX**, then press *I uploaded it*. The site reads the
-   exchange and checks it - that is the only thing that captures a tile, from
-   the game or from the browser.
-5. **Watch it move.** Whoever holds a tile, and the time you would have to beat,
-   reaches the website immediately and everybody else's panel within about
-   twenty seconds.
+   exchange and checks - that is the only thing that captures a tile, from the
+   game or the browser.
+5. **Watch it move.** A capture reaches the website immediately and everybody
+   else's overlay within about twenty seconds.
 
-There is a **weekly board** too, open to anyone, at
-[100tmx.com/events/bingo](https://100tmx.com/events/bingo) - and a *How it
-works* button on both pages if you would rather read it there.
+There is a *How it works* button on both board pages that says the same thing,
+if somebody would rather read it there.
 
 Worth knowing: a private board never feeds the weekly ladder, but it cannot opt
 out of the archive either. If you put the first ever replay on a map nobody had
