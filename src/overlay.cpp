@@ -2,6 +2,7 @@
 
 #include <d3d9.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -33,6 +34,9 @@ WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
 const ImVec4 kOpen(0.36f, 0.78f, 0.44f, 1.0f);
+// An unclaimed tile is neutral, not good news - green on twenty-five of them
+// drowned out the one colour that means something: a player's.
+const ImVec4 kFree(0.55f, 0.57f, 0.62f, 1.0f);
 // Red for a tile somebody else has taken, green for one still going: the two
 // states you scan the grid for. Gold stays for your own, because "taken" and
 // "taken by me" are not the same news.
@@ -87,6 +91,25 @@ void setup(IDirect3DDevice9* device) {
   ImGui_ImplDX9_Init(device);
   g_ready = true;
   log::line("overlay ready (window %p, subclassed %s)", (void*)g_window, g_originalWndProc ? "yes" : "NO");
+}
+
+// Whether the panel is taking the mouse this frame.
+//
+// The default is automatic: while the game shows a cursor - which is to say in
+// the menus and the pause screen - the panel is clickable, and the moment the
+// cursor goes away for a race it is not. That is what people expect without
+// being told, and it still cannot eat a click mid-run, which is the reason it
+// was click-through in the first place.
+bool interactive() {
+  switch (config().panelInput) {
+    case 1: return g_uiOpen;
+    case 2: return true;
+    default: break;
+  }
+  if (g_uiOpen) return true;
+  CURSORINFO info{};
+  info.cbSize = sizeof(info);
+  return GetCursorInfo(&info) && (info.flags & CURSOR_SHOWING) != 0;
 }
 
 void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0) {
@@ -159,6 +182,21 @@ void drawMapBlock(const State& state) {
   // Somebody else has this map marked. Not a warning - two people on one map is
   // allowed and always was - but it is the thing you would want to know before
   // spending the evening on it.
+  // Straight after a finish the one thing worth doing is uploading the replay:
+  // it is what credits the map and what a bingo tile is checked against, and
+  // hunting the map down on the website afterwards is where people give up.
+  if (state.raceState == 2 && !map.uploadUrl.empty()) {
+    ImGui::Separator();
+    if (state.raceTimeMs > 0) {
+      ImGui::TextColored(kOpen, "Finished in %s", timeString(state.raceTimeMs).c_str());
+    }
+    if (interactive() && ImGui::Button("Upload the replay to TMX")) {
+      pushCommand(Command::Kind::OpenUrl, map.uploadUrl);
+    }
+    ImGui::TextColored(kMuted, "Opens this map's upload page in your browser.");
+    ImGui::Separator();
+  }
+
   for (const AlsoHere& other : state.alsoHere) {
     ImGui::TextColored(kWarn, "also here: %s", other.name.empty() ? "another player" : other.name.c_str());
   }
@@ -174,10 +212,10 @@ void drawMapBlock(const State& state) {
       ImGui::TextColored(kMuted, "nobody holds it yet");
     }
     if (state.raceState == 2 && state.raceTimeMs > 0) {
-      ImGui::TextColored(kOpen, "You finished in %s", timeString(state.raceTimeMs).c_str());
+      ImGui::TextColored(kOpen, "Your run: %s", timeString(state.raceTimeMs).c_str());
       ImGui::TextWrapped("Upload the replay to TMX, then press \"I uploaded it\".");
     }
-    if (g_uiOpen && ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
+    if (interactive() && ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
       pushCommand(Command::Kind::Check, hit.boardId, hit.idx);
     }
   }
@@ -192,8 +230,17 @@ void drawBoard(const State& state) {
 
   ImGui::TextUnformatted(board.title.empty() ? board.id.c_str() : board.title.c_str());
 
-  const float cell = 26.0f * config().overlayScale;
   const int size = board.size > 0 ? board.size : 5;
+
+  // The grid fills whatever width the window has been dragged to, so making the
+  // panel bigger makes the board bigger rather than adding empty space.
+  const float available = ImGui::GetContentRegionAvail().x;
+  const float spacing = ImGui::GetStyle().ItemSpacing.x;
+  const float cell = std::max(22.0f, (available - spacing * (size - 1)) / static_cast<float>(size));
+
+  // Past this a tile is big enough for the map to be worth more than its
+  // number; below it the screenshot would be a smudge.
+  const bool showImages = cell >= 46.0f;
 
   for (const Tile& tile : board.tiles) {
     if (tile.idx % size != 0) ImGui::SameLine();
@@ -201,7 +248,7 @@ void drawBoard(const State& state) {
     // The holder's own colour, straight from the board's palette, so the grid
     // here and the grid in the browser are the same picture. Red is the
     // fallback when a colour did not come through; green still means open.
-    ImVec4 colour = kOpen;
+    ImVec4 colour = kFree;
     if (tile.held) {
       colour = tile.holderColor ? ImGui::ColorConvertU32ToFloat4(tile.holderColor) : kTaken;
     }
@@ -214,7 +261,19 @@ void drawBoard(const State& state) {
     // its own: colour already means "who holds this".
     const bool here = !state.map.uid.empty() && tile.trackId == state.map.trackId && tile.site == state.map.site;
     if (here) ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
-    if (ImGui::Button(label, ImVec2(cell, cell)) && g_uiOpen) g_selectedTile = tile.idx;
+
+    void* image = showImages ? textures::get(g_device, tile.trackId) : nullptr;
+    bool pressed = false;
+    if (image) {
+      // The holder's colour becomes the tint, so a board of screenshots still
+      // reads as a board of claims at a glance.
+      const ImVec4 tint = tile.held ? ImVec4(colour.x, colour.y, colour.z, 1.0f) : ImVec4(1, 1, 1, 1);
+      pressed = ImGui::ImageButton(label, reinterpret_cast<ImTextureID>(image), ImVec2(cell - 10, cell - 10),
+                                   ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tint);
+    } else {
+      pressed = ImGui::Button(label, ImVec2(cell, cell));
+    }
+    if (pressed && interactive()) g_selectedTile = tile.idx;
     if (here) ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
 
@@ -266,10 +325,14 @@ void drawBoard(const State& state) {
         ImGui::TextColored(tile.mine ? kMine : kTaken, "%s holds it at %s",
                            tile.mine ? "you" : tile.holderName.c_str(), timeString(tile.holderTime).c_str());
       }
-      if (g_uiOpen) {
+      if (interactive()) {
         if (ImGui::Button("Play this map")) pushCommand(Command::Kind::Play, tile.playUrl);
         ImGui::SameLine();
         if (ImGui::Button("I uploaded it")) pushCommand(Command::Kind::Check, board.id, tile.idx);
+        if (!tile.uploadUrl.empty()) {
+          ImGui::SameLine();
+          if (ImGui::Button("Upload")) pushCommand(Command::Kind::OpenUrl, tile.uploadUrl);
+        }
       }
       break;
     }
@@ -297,20 +360,24 @@ void drawPanel(const State& state) {
     ImGui::SetNextWindowPos(position, ImGuiCond_Always);
     placed = true;
   }
-  ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
+  // Sized once, then the window owns it: drag the corner, and a board dragged
+  // wide enough starts showing the maps instead of their numbers.
+  const bool savedSize = config().overlayW > 80 && config().overlayH > 80;
+  ImGui::SetNextWindowSize(savedSize ? ImVec2(config().overlayW, config().overlayH) : ImVec2(width, 340),
+                           ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(220, 180), ImVec2(1600, 1600));
   ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
 
   // A title bar rather than a bare box: it is what you grab to move it and
   // what you click to fold it away, and it is the same shape as the settings
   // window, so there is one idea to learn instead of two.
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
-                           ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
-                           ImGuiWindowFlags_NoNav;
+  ImGuiWindowFlags flags =
+      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
   // Click-through until the panel is opened: while driving it is a readout, and
   // a window that eats the mouse in a racing game is a bug, not a feature. That
   // also means it can only be dragged with the window open, which is the only
   // time somebody means to move it.
-  if (!g_uiOpen) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+  if (!interactive()) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
 
   if (ImGui::Begin("100% TMX + Bingo###tmx-panel", nullptr, flags)) {
     drawMapBlock(state);
@@ -324,10 +391,14 @@ void drawPanel(const State& state) {
 
     // Remembered when the drag ends rather than every frame: this writes a file.
     const ImVec2 position = ImGui::GetWindowPos();
-    if (g_uiOpen && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
-        (position.x != config().overlayX || position.y != config().overlayY)) {
+    const ImVec2 size = ImGui::GetWindowSize();
+    if (interactive() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+        (position.x != config().overlayX || position.y != config().overlayY || size.x != config().overlayW ||
+         size.y != config().overlayH)) {
       config().overlayX = position.x;
       config().overlayY = position.y;
+      config().overlayW = size.x;
+      config().overlayH = size.y;
       config().save();
     }
   }
@@ -428,10 +499,28 @@ void drawSettings(const State& state) {
         config().save();
       }
 
-      ImGui::TextColored(kMuted, "Drag the panel with this window open.");
-      if (ImGui::Button("Reset its position")) {
+      ImGui::TextColored(kMuted, "The panel takes the mouse:");
+      const int input = config().panelInput;
+      if (ImGui::RadioButton("in the menus", input == 0)) {
+        config().panelInput = 0;
+        config().save();
+      }
+      ImGui::SameLine();
+      if (ImGui::RadioButton("only with this window", input == 1)) {
+        config().panelInput = 1;
+        config().save();
+      }
+      ImGui::SameLine();
+      if (ImGui::RadioButton("always", input == 2)) {
+        config().panelInput = 2;
+        config().save();
+      }
+      ImGui::Separator();
+      if (ImGui::Button("Reset its position and size")) {
         config().overlayX = -1.0f;
         config().overlayY = -1.0f;
+        config().overlayW = 0.0f;
+        config().overlayH = 0.0f;
         config().save();
         // Takes effect on the next start, because the window owns its position
         // for the life of the session - said plainly rather than left puzzling.

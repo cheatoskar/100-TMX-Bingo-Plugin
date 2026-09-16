@@ -25,6 +25,7 @@ struct MapStatus {
   int trackId = 0;
   std::string url;
   std::string playUrl;
+  std::string uploadUrl;
   int open = -1;             // 1 open, 0 finished, -1 not in the catalogue
   int excluded = -1;
   int score = 0;
@@ -53,6 +54,7 @@ struct Tile {
   std::string name;
   std::string url;
   std::string playUrl;
+  std::string uploadUrl;
   bool hasRecord = false;
   bool held = false;
   bool mine = false;
@@ -141,7 +143,9 @@ struct State {
 
 // Commands travel the other way: the overlay pushes, the worker performs.
 struct Command {
-  enum class Kind { Connect, CancelLink, Disconnect, RefreshBoards, SelectBoard, Play, Check, ReportNow, ReleaseAll };
+  enum class Kind {
+    Connect, CancelLink, Disconnect, RefreshBoards, SelectBoard, Play, Check, ReportNow, ReleaseAll, OpenUrl
+  };
   Kind kind = Kind::RefreshBoards;
   std::string text;   // board id, or a play URL
   int number = 0;     // tile index

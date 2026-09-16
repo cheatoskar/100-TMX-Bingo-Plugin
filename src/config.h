@@ -29,6 +29,18 @@ struct Config {
   float overlayX = -1.0f;
   float overlayY = -1.0f;
   float overlayScale = 1.0f;
+  /** Size the panel was last dragged to; 0 means "as big as its contents". */
+  float overlayW = 0.0f;
+  float overlayH = 0.0f;
+  /**
+   * When the panel takes the mouse.
+   *
+   * 0 automatic - it takes the mouse while the game is showing a cursor, which
+   *   is to say in the menus, and never mid-race.
+   * 1 only while the settings window is open.
+   * 2 always.
+   */
+  int panelInput = 0;
   float overlayAlpha = 0.85f;
 
   // The board the panel is showing, remembered across sessions.

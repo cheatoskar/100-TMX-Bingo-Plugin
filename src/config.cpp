@@ -92,6 +92,9 @@ void Config::load() {
       else if (key == "corner") overlayCorner = atoi(value.c_str());
       else if (key == "scale") overlayScale = static_cast<float>(atof(value.c_str()));
       else if (key == "alpha") overlayAlpha = static_cast<float>(atof(value.c_str()));
+      else if (key == "w") overlayW = static_cast<float>(atof(value.c_str()));
+      else if (key == "h") overlayH = static_cast<float>(atof(value.c_str()));
+      else if (key == "input") panelInput = atoi(value.c_str());
       else if (key == "x") overlayX = static_cast<float>(atof(value.c_str()));
       else if (key == "y") overlayY = static_cast<float>(atof(value.c_str()));
       else if (key == "board") board = value;
@@ -139,6 +142,9 @@ void Config::save() const {
        << "alpha = " << overlayAlpha << "\n"
        << "x = " << overlayX << "\n"
        << "y = " << overlayY << "\n"
+       << "w = " << overlayW << "\n"
+       << "h = " << overlayH << "\n"
+       << "input = " << panelInput << "\n"
        << "board = " << board << "\n"
        << "toggle_key = " << toggleKey << "\n";
 }

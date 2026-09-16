@@ -158,6 +158,7 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
     map.name = m->str("name");
     map.url = m->str("url");
     map.playUrl = m->str("playUrl");
+    map.uploadUrl = m->str("uploadUrl");
     map.open = m->tribool("open");
     map.excluded = m->tribool("excluded");
     map.score = m->integer("score");
@@ -340,6 +341,7 @@ void loadBoard(const std::string& id) {
       tile.playUrl = t.str("playUrl");
       tile.hasRecord = t.flag("hasRecord");
       tile.imageUrl = t.str("imageUrl");
+      tile.uploadUrl = t.str("uploadUrl");
       const Json* holder = t.child("holder");
       if (holder && !holder->isNull()) {
         tile.held = true;
@@ -514,6 +516,16 @@ void loop() {
           break;
         case Command::Kind::Play:
           play(command.text);
+          break;
+        case Command::Kind::OpenUrl:
+          // Windows hands the URL to the default browser, which brings its own
+          // window forward - so an already-open browser is raised rather than a
+          // second one started. There is no way to reuse a specific tab, and
+          // pretending otherwise would be a promise this cannot keep.
+          if (!command.text.empty()) {
+            ShellExecuteA(nullptr, "open", command.text.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            toast("Opened the upload page in your browser.");
+          }
           break;
         case Command::Kind::Check:
           check(command.text, command.number);
