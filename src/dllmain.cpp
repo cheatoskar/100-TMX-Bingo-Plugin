@@ -20,6 +20,11 @@ DWORD WINAPI boot(LPVOID) {
   GetModuleFileNameA(nullptr, exe, MAX_PATH);
   tmx::log::line("boot thread: host is %s", exe);
 
+  // Before anything else: the game asks d3d9 for its factory early, and the
+  // only way to see the device it actually draws with is to be in place when
+  // it does. Everything below can wait; this cannot.
+  tmx::hook::installImports();
+
   tmx::config().load();
   tmx::log::line("config: %s (site %s, token %s, toggle key 0x%02x)", tmx::config().path().c_str(),
                  tmx::config().baseUrl.c_str(), tmx::config().token.empty() ? "none" : "present",

@@ -20,6 +20,7 @@
 #include <d3d9.h>
 #include <tlhelp32.h>
 
+#include <cstring>
 #include <cwctype>
 #include <string>
 
@@ -52,7 +53,7 @@ struct Patched {
   ResetFn reset = nullptr;
 };
 
-Patched g_tables[2];
+Patched g_tables[8];
 int g_tableCount = 0;
 bool g_drewOnce = false;
 
@@ -196,7 +197,7 @@ IDirect3DDevice9* makeProbeDeviceEx(HWND window) {
 }
 
 bool patchTable(const char* name, IDirect3DDevice9* device) {
-  if (!device || g_tableCount >= 2) return false;
+  if (!device || g_tableCount >= 8) return false;
 
   void** vtable = *reinterpret_cast<void***>(device);
   if (tableFor(vtable)) {
@@ -223,6 +224,126 @@ bool patchTable(const char* name, IDirect3DDevice9* device) {
             (void*)table.present, done ? "yes" : "NO");
   if (!done) g_tableCount--;
   return done;
+}
+
+// ---------------------------------------------------------------------------
+// Catching the game's own device.
+//
+// Patching a vtable read off a probe device only works when every device of
+// that class shares one table. Here they do not: the addresses move on every
+// run, so each device carries its own copy and the probe's patch is a patch on
+// a table nobody else will ever use. Measured on this machine - three runs,
+// three different vtable addresses, and not one frame through any of them.
+//
+// So the game's own objects have to be caught as they are made. Its import
+// table is rewritten so that its call to Direct3DCreate9 comes here first; the
+// factory it gets back is patched at CreateDevice; and the device that comes
+// out of *that* is the one the game draws with, so its table is the one worth
+// having.
+//
+// Import-table patching rather than an inline detour on purpose: no
+// instruction-length disassembly, nothing executable rewritten, and if the
+// import is not there the whole thing simply does not apply.
+// ---------------------------------------------------------------------------
+
+using CreateDeviceFn = HRESULT(APIENTRY*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*,
+                                          IDirect3DDevice9**);
+using CreateDeviceExFn = HRESULT(APIENTRY*)(IDirect3D9Ex*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*,
+                                            D3DDISPLAYMODEEX*, IDirect3DDevice9Ex**);
+using Create9Fn = IDirect3D9*(WINAPI*)(UINT);
+using Create9ExFn = HRESULT(WINAPI*)(UINT, IDirect3D9Ex**);
+
+constexpr int kCreateDeviceIndex = 16;
+constexpr int kCreateDeviceExIndex = 20;
+
+Create9Fn g_realCreate9 = nullptr;
+Create9ExFn g_realCreate9Ex = nullptr;
+CreateDeviceFn g_realCreateDevice = nullptr;
+CreateDeviceExFn g_realCreateDeviceEx = nullptr;
+
+HRESULT APIENTRY createDeviceDetour(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND window, DWORD flags,
+                                    D3DPRESENT_PARAMETERS* params, IDirect3DDevice9** out) {
+  HRESULT hr = g_realCreateDevice(self, adapter, type, window, flags, params, out);
+  if (SUCCEEDED(hr) && out && *out) {
+    log::line("the game created its device - patching the table it actually uses");
+    patchTable("game", *out);
+  }
+  return hr;
+}
+
+HRESULT APIENTRY createDeviceExDetour(IDirect3D9Ex* self, UINT adapter, D3DDEVTYPE type, HWND window, DWORD flags,
+                                      D3DPRESENT_PARAMETERS* params, D3DDISPLAYMODEEX* mode,
+                                      IDirect3DDevice9Ex** out) {
+  HRESULT hr = g_realCreateDeviceEx(self, adapter, type, window, flags, params, mode, out);
+  if (SUCCEEDED(hr) && out && *out) {
+    log::line("the game created its Ex device - patching the table it actually uses");
+    patchTable("game Ex", *out);
+  }
+  return hr;
+}
+
+void patchFactory(IDirect3D9* factory, bool isEx) {
+  void** vtable = *reinterpret_cast<void***>(factory);
+
+  if (!g_realCreateDevice) {
+    g_realCreateDevice = reinterpret_cast<CreateDeviceFn>(vtable[kCreateDeviceIndex]);
+    writePointer(&vtable[kCreateDeviceIndex], reinterpret_cast<void*>(&createDeviceDetour));
+    log::line("watching CreateDevice on the factory the game just made");
+  }
+  if (isEx && !g_realCreateDeviceEx) {
+    g_realCreateDeviceEx = reinterpret_cast<CreateDeviceExFn>(vtable[kCreateDeviceExIndex]);
+    writePointer(&vtable[kCreateDeviceExIndex], reinterpret_cast<void*>(&createDeviceExDetour));
+    log::line("watching CreateDeviceEx on the factory the game just made");
+  }
+}
+
+IDirect3D9* WINAPI create9Detour(UINT sdk) {
+  IDirect3D9* factory = g_realCreate9 ? g_realCreate9(sdk) : nullptr;
+  log::line("the game called Direct3DCreate9 (%s)", factory ? "ok" : "it failed");
+  if (factory) patchFactory(factory, false);
+  return factory;
+}
+
+HRESULT WINAPI create9ExDetour(UINT sdk, IDirect3D9Ex** out) {
+  HRESULT hr = g_realCreate9Ex ? g_realCreate9Ex(sdk, out) : E_FAIL;
+  log::line("the game called Direct3DCreate9Ex (0x%08lx)", hr);
+  if (SUCCEEDED(hr) && out && *out) patchFactory(*out, true);
+  return hr;
+}
+
+// Rewrite one imported function pointer in the host executable.
+bool patchImport(const char* dll, const char* function, void* replacement, void** original) {
+  HMODULE base = GetModuleHandleW(nullptr);
+  auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+  if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+
+  auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<BYTE*>(base) + dos->e_lfanew);
+  if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+
+  const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+  if (!dir.VirtualAddress) return false;
+
+  auto import = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(reinterpret_cast<BYTE*>(base) + dir.VirtualAddress);
+  for (; import->Name; import++) {
+    const char* name = reinterpret_cast<const char*>(reinterpret_cast<BYTE*>(base) + import->Name);
+    if (_stricmp(name, dll) != 0) continue;
+
+    auto names = reinterpret_cast<IMAGE_THUNK_DATA*>(reinterpret_cast<BYTE*>(base) + import->OriginalFirstThunk);
+    auto addresses = reinterpret_cast<IMAGE_THUNK_DATA*>(reinterpret_cast<BYTE*>(base) + import->FirstThunk);
+    if (!import->OriginalFirstThunk) names = addresses;
+
+    for (; names->u1.AddressOfData; names++, addresses++) {
+      if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+      auto named = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(reinterpret_cast<BYTE*>(base) + names->u1.AddressOfData);
+      if (strcmp(named->Name, function) != 0) continue;
+
+      *original = reinterpret_cast<void*>(addresses->u1.Function);
+      if (!writePointer(reinterpret_cast<void**>(&addresses->u1.Function), replacement)) return false;
+      log::line("import patched: %s!%s", dll, function);
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -256,9 +377,27 @@ void logGraphicsModules() {
 
 bool drewOnce() { return g_drewOnce; }
 
+bool installImports() {
+  static bool done = false;
+  if (done) return true;
+
+  bool any = false;
+  any |= patchImport("d3d9.dll", "Direct3DCreate9", reinterpret_cast<void*>(&create9Detour),
+                     reinterpret_cast<void**>(&g_realCreate9));
+  any |= patchImport("d3d9.dll", "Direct3DCreate9Ex", reinterpret_cast<void*>(&create9ExDetour),
+                     reinterpret_cast<void**>(&g_realCreate9Ex));
+  if (!any) {
+    log::once("imports", "the game does not import Direct3DCreate9 by name - falling back to the probe");
+  }
+  done = any;
+  return any;
+}
+
 bool install() {
   if (g_tableCount > 0) return true;
   logGraphicsModules();
+
+  installImports();  // no-op once it has taken
 
   WNDCLASSEXW wc{};
   wc.cbSize = sizeof(wc);
