@@ -13,6 +13,7 @@
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 #include "state.h"
+#include "textures.h"
 #include "worker.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -25,6 +26,9 @@ bool g_ready = false;
 bool g_uiOpen = false;
 bool g_toggleHeld = false;
 HWND g_window = nullptr;
+// Kept from the frame we are drawing in: textures belong to this device and may
+// only be made on this thread.
+IDirect3DDevice9* g_device = nullptr;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -194,7 +198,13 @@ void drawBoard(const State& state) {
   for (const Tile& tile : board.tiles) {
     if (tile.idx % size != 0) ImGui::SameLine();
 
-    ImVec4 colour = tile.held ? (tile.mine ? kMine : kTaken) : kOpen;
+    // The holder's own colour, straight from the board's palette, so the grid
+    // here and the grid in the browser are the same picture. Red is the
+    // fallback when a colour did not come through; green still means open.
+    ImVec4 colour = kOpen;
+    if (tile.held) {
+      colour = tile.holderColor ? ImGui::ColorConvertU32ToFloat4(tile.holderColor) : kTaken;
+    }
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(colour.x * 0.35f, colour.y * 0.35f, colour.z * 0.35f, 0.85f));
     ImGui::PushStyleColor(ImGuiCol_Text, colour);
 
@@ -211,6 +221,9 @@ void drawBoard(const State& state) {
     if (ImGui::IsItemHovered()) {
       ImGui::BeginTooltip();
       ImGui::TextUnformatted(tile.name.empty() ? "(unnamed map)" : tile.name.c_str());
+      if (void* image = textures::get(g_device, tile.trackId)) {
+        ImGui::Image(reinterpret_cast<ImTextureID>(image), ImVec2(240, 135));
+      }
       if (tile.held) {
         ImGui::TextColored(kMuted, "%s - %s", tile.mine ? "you" : tile.holderName.c_str(),
                            timeString(tile.holderTime).c_str());
@@ -221,10 +234,31 @@ void drawBoard(const State& state) {
     }
   }
 
+  // Who is ahead, in the board's own colours. Three rows: the panel is 260px
+  // wide and the question it answers is "am I winning", not "what is the exact
+  // order of eight people".
+  if (!board.ladder.empty()) {
+    ImGui::Separator();
+    int shown = 0;
+    for (const LadderRow& row : board.ladder) {
+      if (shown++ >= 3 && !row.mine) continue;
+      ImGui::TextColored(row.color ? ImGui::ColorConvertU32ToFloat4(row.color) : kMuted, "%d.", shown);
+      ImGui::SameLine();
+      ImGui::TextUnformatted(row.name.empty() ? "somebody" : row.name.c_str());
+      ImGui::SameLine();
+      ImGui::TextColored(kMuted, "%d tile%s%s", row.tiles, row.tiles == 1 ? "" : "s",
+                         row.lines > 0 ? (row.lines == 1 ? " + a line" : " + lines") : "");
+    }
+  }
+
   if (g_selectedTile >= 0) {
     for (const Tile& tile : board.tiles) {
       if (tile.idx != g_selectedTile) continue;
       ImGui::Separator();
+      if (void* image = textures::get(g_device, tile.trackId)) {
+        const float width = ImGui::GetContentRegionAvail().x;
+        ImGui::Image(reinterpret_cast<ImTextureID>(image), ImVec2(width, width * 9.0f / 16.0f));
+      }
       ImGui::TextUnformatted(tile.name.empty() ? "(unnamed map)" : tile.name.c_str());
       ImGui::TextColored(kMuted, "%s #%d%s", tile.exchange.c_str(), tile.trackId,
                          tile.hasRecord ? " - already has a replay" : " - never finished");
@@ -445,6 +479,7 @@ bool capturingInput() { return g_ready && g_uiOpen; }
 void draw(IDirect3DDevice9* device) {
   if (!g_ready) setup(device);
   if (!g_ready) return;
+  g_device = device;
 
   // The toggle is read here rather than in the window procedure so it works
   // even when the game has swallowed the key.
@@ -470,12 +505,16 @@ void draw(IDirect3DDevice9* device) {
 }
 
 void invalidate() {
+  // The map thumbnails are this device's, too: keeping them across a reset is
+  // how an alt-tab turns into a crash.
+  textures::releaseAll();
   if (g_ready) ImGui_ImplDX9_InvalidateDeviceObjects();
 }
 
 void shutdown() {
   if (!g_ready) return;
   g_ready = false;
+  textures::releaseAll();
   if (g_window && g_originalWndProc) {
     SetWindowLongPtrW(g_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_originalWndProc));
     g_originalWndProc = nullptr;

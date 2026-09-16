@@ -23,6 +23,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)   # no CMakeLists of its own, so this only populates
 
+# stb_image, for the map screenshots. Header-only, public domain, and the only
+# thing standing between a JPEG from TMX and a D3D9 texture.
+FetchContent_Declare(
+  stb
+  GIT_REPOSITORY https://github.com/nothings/stb.git
+  GIT_TAG 2c980bb59875b0d32144a71867fbdebb2f77cd20  # pinned to a full sha: stb has no releases, and a short one cannot be checked out
+)
+FetchContent_MakeAvailable(stb)
+
 add_library(tmx_mod SHARED
   src/dllmain.cpp
   src/config.cpp
@@ -31,6 +40,7 @@ add_library(tmx_mod SHARED
   src/http.cpp
   src/log.cpp
   src/overlay.cpp
+  src/textures.cpp
   src/worker.cpp
 
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -44,6 +54,7 @@ add_library(tmx_mod SHARED
 target_include_directories(tmx_mod PRIVATE
   src
   ${imgui_SOURCE_DIR}
+  ${stb_SOURCE_DIR}
 )
 
 target_compile_definitions(tmx_mod PRIVATE

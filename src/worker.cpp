@@ -16,6 +16,7 @@
 #include "json.h"
 #include "log.h"
 #include "state.h"
+#include "textures.h"
 
 namespace tmx {
 
@@ -295,6 +296,17 @@ void loadBoards() {
   note("boards up to date");
 }
 
+// "#4ade80" as the number ImGui wants. The site sends its palette as CSS hex,
+// which is the one format both ends can read without a lookup table.
+unsigned int parseColor(const std::string& hex) {
+  if (hex.size() < 7 || hex[0] != '#') return 0;
+  const unsigned long value = strtoul(hex.c_str() + 1, nullptr, 16);
+  const unsigned int r = (value >> 16) & 0xFF;
+  const unsigned int g = (value >> 8) & 0xFF;
+  const unsigned int b = value & 0xFF;
+  return 0xFF000000u | (b << 16) | (g << 8) | r;  // ImGui packs ABGR
+}
+
 void loadBoard(const std::string& id) {
   if (config().token.empty() || id.empty()) return;
 
@@ -327,14 +339,32 @@ void loadBoard(const std::string& id) {
       tile.url = t.str("url");
       tile.playUrl = t.str("playUrl");
       tile.hasRecord = t.flag("hasRecord");
+      tile.imageUrl = t.str("imageUrl");
       const Json* holder = t.child("holder");
       if (holder && !holder->isNull()) {
         tile.held = true;
         tile.mine = holder->flag("mine");
         tile.holderName = holder->str("name");
         tile.holderTime = holder->integer("replayTime");
+        tile.holderColor = parseColor(holder->str("color"));
       }
+      // Asked for here, on the worker, so the render thread only ever picks up
+      // pixels that are already decoded and waiting.
+      textures::request(tile.trackId, tile.imageUrl);
       view.tiles.push_back(tile);
+    }
+  }
+
+  if (const Json* rows = data.child("ladder"); rows && rows->type == Json::Type::Array) {
+    for (const Json& r : rows->array) {
+      LadderRow row;
+      row.name = r.str("name");
+      row.color = parseColor(r.str("color"));
+      row.tiles = r.integer("tiles");
+      row.lines = r.integer("lines");
+      row.points = r.integer("points");
+      row.mine = r.flag("mine");
+      view.ladder.push_back(row);
     }
   }
 

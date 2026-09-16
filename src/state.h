@@ -58,6 +58,20 @@ struct Tile {
   bool mine = false;
   std::string holderName;
   int holderTime = 0;   // milliseconds; the time to beat
+  /** The holder's colour on this board - the same one the website paints. */
+  unsigned int holderColor = 0;
+  /** TMX's screenshot of the map. */
+  std::string imageUrl;
+};
+
+/** A row of the board's standing, as the website ranks it. */
+struct LadderRow {
+  std::string name;
+  unsigned int color = 0;
+  int tiles = 0;
+  int lines = 0;
+  int points = 0;
+  bool mine = false;
 };
 
 struct BoardView {
@@ -67,6 +81,7 @@ struct BoardView {
   int size = 5;
   std::string endsAt;
   std::vector<Tile> tiles;
+  std::vector<LadderRow> ladder;
   bool loaded = false;
 };
 
