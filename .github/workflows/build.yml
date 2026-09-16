@@ -32,6 +32,7 @@ jobs:
       - name: Collect
         run: |
           mkdir out
+          copy build\Release\100TMX-Installer.exe out\
           copy build\Release\100TMX.dll out\
           copy build\Release\100TMX.asi out\
           copy README.md out\
@@ -49,4 +50,8 @@ jobs:
             out/100TMX-Installer.exe
             out/100TMX.dll
             out/100TMX.asi
+          # A release missing the file everybody is told to download should fail
+          # the build, not publish quietly without it - which is exactly what
+          # v0.2.0 did.
+          fail_on_unmatched_files: true
           generate_release_notes: true
