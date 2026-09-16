@@ -1,4 +1,4 @@
-# 100% TMX + Bingo
+# 100% TMX + Bingo Overlay for TMNF/TMUF
 
 **Bingo, in the game.** An overlay for **TrackMania Nations Forever** and
 **TrackMania United Forever** that puts the boards you are playing on screen
