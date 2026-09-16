@@ -9,7 +9,9 @@ It also answers the question every map in the
 [100% TMX project](https://100tmx.com) raises the moment it loads: has anybody
 ever finished this one, and what is it worth?
 
-> **Status: early.** v0.1.0 runs, and has been through a real session on
+![The bingo panel and the settings window, in game](images/BingoIngame.png)
+
+> **Status: early.** v0.2.0 runs, and has been through a real session on
 > Nations Forever. If the panel says a build is not recognised, see
 > [Unrecognised build](#unrecognised-build) - that is a five-minute fix and a
 > useful bug report.
@@ -30,6 +32,14 @@ ever finished this one, and what is it worth?
   map and starts it. Pick a tile, drive it, next.
 - **"I uploaded it"**: after you put the replay on TMX, one button asks the site
   to check the tile. The site reads TMX and believes only that.
+
+The boards themselves live on the website — drawn weekly, or built privately
+for an evening — and the panel is a window onto the same board everybody else
+is playing.
+
+| The board on the site | Building your own |
+|---|---|
+| ![](images/BingoPageonSite.png) | ![](images/CreateBiingoSite.png) |
 
 **The project, while you drive**
 
@@ -108,11 +118,15 @@ installer's source is [`installer/main.cpp`](installer/main.cpp).
 
 ### Connecting your account
 
+![The Connection tab, connected](images/ConnectionModalIngsame.png)
+
 1. In game, press **F9** — the 100% TMX window opens.
 2. **Connection → Connect.** A code like `ABCD-2345` appears and your browser
    opens [100tmx.com/link](https://100tmx.com/link).
 3. Sign in with Discord (the same account the bot's `/connect` uses), type the
    code, and confirm the machine.
+
+   ![Approving a machine on the website](images/LinkClientonSite.png)
 4. Back in game the panel says connected, within a few seconds.
 5. **Settings → Share what I am playing** if you want your map to show on the
    remaining list. Leave it off and everything else still works.
@@ -137,6 +151,8 @@ it cannot get in the way of a run.
 
 **Boards** tab: pick the board the panel shows.
 **Connection** tab: connect, disconnect, or see the pending code.
+![The Settings tab](images/SettingsModalIngame.png)
+
 **Settings** tab: sharing, panel size and opacity. The panel itself is dragged
 with the window open.
 **Status** tab: your game build, whether the offsets were recognised, the UID of
@@ -245,6 +261,8 @@ machine is connected.
   TmForever keeps the current challenge. No Twinkie code is compiled in and
   Twinkie is not required at runtime.
 
-The mod itself is **all rights reserved**. The source is here so that anybody can
-see what a DLL they load into their game actually does, and so bug reports can
-point at a line - not as a grant to redistribute or reuse it.
+The mod is **MIT licensed** - see [LICENSE](LICENSE). Fork it, build it, and in
+particular: add the offsets for a TrackMania build it does not know yet. The
+addresses it reads come from MIT-licensed work in the first place, and a mod
+whose whole problem is "every build is different" should not make fixing that a
+legal question.
