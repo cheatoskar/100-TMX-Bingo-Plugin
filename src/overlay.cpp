@@ -30,6 +30,9 @@ HWND g_window = nullptr;
 // Kept from the frame we are drawing in: textures belong to this device and may
 // only be made on this thread.
 IDirect3DDevice9* g_device = nullptr;
+// Whether a map is loaded, copied out of the last frame's state. It is what
+// decides whether the panel may take the mouse.
+bool g_inRace = false;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -106,10 +109,11 @@ bool interactive() {
     case 2: return true;
     default: break;
   }
-  if (g_uiOpen) return true;
-  CURSORINFO info{};
-  info.cbSize = sizeof(info);
-  return GetCursorInfo(&info) && (info.flags & CURSOR_SHOWING) != 0;
+  // Not the Windows cursor: TrackMania draws its own in the menus and keeps the
+  // system one hidden, so CURSOR_SHOWING is false even where a pointer is
+  // plainly on screen. The game's own state is the honest signal - no map
+  // loaded means menus, and menus are where clicking the panel is safe.
+  return g_uiOpen || !g_inRace;
 }
 
 void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0) {
@@ -580,6 +584,7 @@ void draw(IDirect3DDevice9* device) {
   g_toggleHeld = down;
 
   State state = shared().read();
+  g_inRace = state.inRace;
 
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
@@ -626,14 +631,22 @@ LRESULT CALLBACK wndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     }
   }
 
-  if (g_ready && g_uiOpen) {
+  // Input is handed to ImGui on every message, not only while the settings
+  // window is open. That gate was the whole bug: the panel was allowed to take
+  // the mouse in the menus, but ImGui never heard a click, so the buttons sat
+  // there doing nothing until F9 was pressed.
+  if (g_ready) {
     ImGui_ImplWin32_WndProcHandler(window, message, wparam, lparam);
-    ImGuiIO& io = ImGui::GetIO();
-    // Only swallow what the panel is actually using. A driving input must reach
-    // the game even with the window open, or somebody loses a run to a keypress.
-    if ((io.WantCaptureMouse && message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
-        (io.WantCaptureKeyboard && message >= WM_KEYFIRST && message <= WM_KEYLAST)) {
-      return 1;
+
+    // Swallowing is the part that stays conditional. Only what the panel is
+    // actually using, and only while it may take input at all - a driving input
+    // must always reach the game, or somebody loses a run to a keypress.
+    if (interactive()) {
+      ImGuiIO& io = ImGui::GetIO();
+      if ((io.WantCaptureMouse && message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
+          (io.WantCaptureKeyboard && message >= WM_KEYFIRST && message <= WM_KEYLAST)) {
+        return 1;
+      }
     }
   }
   return CallWindowProcW(g_originalWndProc, window, message, wparam, lparam);

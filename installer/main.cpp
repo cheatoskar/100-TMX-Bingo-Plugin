@@ -71,7 +71,12 @@ void removeVersionDir(const std::wstring& dir) {
   RemoveDirectoryW(dir.c_str());
 }
 
+bool g_quiet = false;
+
+// Quiet means quiet, including when it goes wrong: a silent install that stops
+// to argue in a dialog is not silent, and the exit code already carries it.
 int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
+  if (g_quiet) return IDOK;
   return MessageBoxW(nullptr, text.c_str(), kTitle, MB_OK | icon);
 }
 
@@ -80,6 +85,7 @@ int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   const std::wstring args = commandLine ? commandLine : L"";
   const bool quiet = args.find(L"/quiet") != std::wstring::npos;
+  g_quiet = quiet;
   const bool uninstall = args.find(L"/uninstall") != std::wstring::npos;
 
   const std::wstring local = localAppData();
