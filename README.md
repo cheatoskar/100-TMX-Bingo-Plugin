@@ -66,11 +66,28 @@ same file under the other name).
 
 ### With TrackMania ModLoader (easiest)
 
+The ModLoader has **no "mods folder"**. It keeps a product database under
+`%LOCALAPPDATA%\TMLoader`, one folder per mod and one per version inside it,
+each with a small `description.yaml`. The script does that for you:
+
 1. Install the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/) if
    you do not have it. (Your antivirus may flag it — it injects DLLs, which is
    what a mod loader does.)
-2. Put `100TMX.dll` in the ModLoader's mods folder and tick it in the list.
-3. Start the game through the ModLoader.
+2. Put `100TMX.dll` and `install-modloader.ps1` in the same folder and run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File install-modloader.ps1
+   ```
+
+3. Open the ModLoader, tick **100TMX**, and start the game.
+
+By hand, if you prefer, it is three files:
+
+```
+%LOCALAPPDATA%\TMLoader\database\TmForever\products@TMX    description.yaml            name / author / description
+    0.1.0\description.yaml      executable: 100TMX.dll  (+ CoreMod dependency)
+    0.1.0@TMX.dll
+```
 
 ### With an ASI loader (no ModLoader)
 
