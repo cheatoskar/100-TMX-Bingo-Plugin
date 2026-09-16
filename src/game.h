@@ -72,6 +72,15 @@ bool attach();
 bool attached();
 std::string attachedProfile();
 
+/**
+ * Whether any profile has ever found a loaded map at all.
+ *
+ * The difference between "we cannot read this build" and "you have not driven
+ * anything yet": the offsets can only be checked against a map that is loaded,
+ * so in the menus there is nothing to be wrong about.
+ */
+bool sawMap();
+
 // One reading. Never throws; every unreadable pointer degrades to "not in a
 // race" rather than to a crash.
 Snapshot read();

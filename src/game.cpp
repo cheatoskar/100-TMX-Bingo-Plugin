@@ -15,6 +15,7 @@ namespace {
 std::mutex g_lock;
 std::vector<Offsets> g_profiles;
 int g_attached = -1;  // index into g_profiles
+bool g_sawMap = false;
 uintptr_t g_base = 0;
 
 // TrackMania's own string types, as published in Twinkie's TrackMania.h.
@@ -158,6 +159,9 @@ bool validate(const Offsets& o) {
   uintptr_t challenge = deref(app + o.challenge);
   if (!plausible(challenge)) return false;  // in the menus: cannot tell yet
 
+  // A map is loaded, so from here on a failure really is this build being
+  // unreadable rather than there being nothing to read.
+  g_sawMap = true;
   return looksLikeUid(readUid(o, challenge));
 }
 
@@ -208,6 +212,11 @@ bool attach() {
 bool attached() {
   std::lock_guard<std::mutex> guard(g_lock);
   return g_attached >= 0;
+}
+
+bool sawMap() {
+  std::lock_guard<std::mutex> guard(g_lock);
+  return g_sawMap;
 }
 
 std::string attachedProfile() {

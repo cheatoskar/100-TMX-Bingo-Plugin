@@ -85,9 +85,17 @@ void pushCommand(Command::Kind kind, const std::string& text = "", int number = 
 
 void drawMapBlock(const State& state) {
   if (!state.attached) {
-    ImGui::TextColored(kWarn, "This TrackMania build is not recognised.");
-    ImGui::TextColored(kMuted, "build %s", state.buildKey.c_str());
-    ImGui::TextWrapped("Nothing is being read or sent. Drive any map once - the mod checks again every quarter second.");
+    // Two different situations, and telling them apart is the whole point: in
+    // the menus there is no map to check the addresses against, so calling that
+    // "not recognised" accuses the build of something it has not done yet.
+    if (!state.sawMap) {
+      ImGui::TextColored(kMuted, "Waiting for a map.");
+      ImGui::TextWrapped("Load any map once and the mod confirms it can read this build.");
+    } else {
+      ImGui::TextColored(kWarn, "This TrackMania build is not recognised.");
+      ImGui::TextColored(kMuted, "build %s", state.buildKey.c_str());
+      ImGui::TextWrapped("Nothing is being read or sent. Report that build id and it can be added.");
+    }
     return;
   }
 

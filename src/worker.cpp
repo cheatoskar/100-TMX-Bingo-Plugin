@@ -449,6 +449,7 @@ void loop() {
               snap.inRace ? snap.uid.c_str() : "");
     shared().write([&](State& s) {
       s.attached = game::attached();
+      s.sawMap = game::sawMap();
       s.profile = game::attachedProfile();
       s.inRace = snap.inRace;
       s.uid = snap.uid;

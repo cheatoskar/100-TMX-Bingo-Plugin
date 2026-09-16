@@ -81,6 +81,8 @@ struct BoardHit {
 struct State {
   // ------------------------------------------------------------- the game
   bool attached = false;
+  /** A map has been loaded at least once, so the build check has had a chance. */
+  bool sawMap = false;
   std::string buildKey;
   std::string profile;
   std::string variant;
