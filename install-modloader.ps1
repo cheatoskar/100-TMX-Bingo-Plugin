@@ -13,7 +13,7 @@
 
 param(
   [string]$Dll = "$PSScriptRoot\100TMX.dll",
-  [string]$Version = "0.1.0"
+  [string]$Version = "0.5.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,9 +27,23 @@ if (-not (Test-Path $loader)) {
   Write-Error "The TrackMania ModLoader does not seem to be installed ($loader is missing). Get it from https://tomashu.dev/software/tmloader/"
 }
 
-$product = "$loader\database\TmForever\products\100TMX"
-$target  = "$product\$Version"
+# The ModLoader's list shows the product *folder*, not the name inside the yaml -
+# that one only appears in the details panel. So the folder is the name.
+$products = "$loader\database\TmForever\products"
+$product  = "$products\100% TMX + Bingo"
+$target   = "$product\$Version"
 New-Item -ItemType Directory -Force -Path $target | Out-Null
+
+# An older install used a different folder, and a profile ticks a mod by that
+# same string - so both come across, or the mod quietly switches itself off.
+$old = "$products\100TMX"
+if (Test-Path $old) { Remove-Item $old -Recurse -Force }
+Get-ChildItem "$loader\database\TmForever\profiles" -Filter *.yaml -ErrorAction SilentlyContinue | ForEach-Object {
+  $text = Get-Content $_.FullName -Raw
+  if ($text -match "id: 100TMX") {
+    ($text -replace "id: 100TMX(\r?\n)", "id: '100% TMX + Bingo'`$1") | Set-Content $_.FullName -Encoding utf8 -NoNewline
+  }
+}
 
 # UTF-8 without a BOM: the loader's YAML parser reads these as plain text, and a
 # BOM on the first line is exactly the kind of thing that makes `name:` vanish.
@@ -55,8 +69,8 @@ changelog: '- The bingo panel, map status, and map marks.'
 
 Copy-Item $Dll "$target\100TMX.dll" -Force
 
-Write-Host "Installed 100TMX $Version to:" -ForegroundColor Green
+Write-Host "Installed 100% TMX + Bingo $Version to:" -ForegroundColor Green
 Write-Host "  $target"
 Write-Host ""
-Write-Host "Now open the ModLoader, tick 100TMX in the list, and start the game."
+Write-Host "Now open the ModLoader, tick \"100% TMX + Bingo\" in the list, and start the game."
 Write-Host "In game: F9 -> Connection -> Connect."

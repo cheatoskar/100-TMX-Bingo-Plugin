@@ -26,7 +26,14 @@
 namespace {
 
 const wchar_t* kTitle = L"100% TMX + Bingo";
-const wchar_t* kVersion = L"0.1.0";
+const wchar_t* kVersion = L"0.5.0";
+
+// The ModLoader's list shows the product *folder*, not the name inside its
+// description.yaml - that one only appears in the details panel. So the folder
+// is what has to read like the mod's name, and the id in a profile is this same
+// string, which is why renaming it has to carry the profiles along.
+const wchar_t* kProduct = L"100% TMX + Bingo";
+const wchar_t* kOldProducts[] = {L"100TMX"};
 const wchar_t* kModLoaderPage = L"https://tomashu.dev/software/tmloader/";
 
 std::wstring localAppData() {
@@ -34,6 +41,14 @@ std::wstring localAppData() {
   std::wstring out;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &raw)) && raw) out = raw;
   if (raw) CoTaskMemFree(raw);
+  return out;
+}
+
+std::string wide(const std::wstring& in) {
+  if (in.empty()) return std::string();
+  int size = WideCharToMultiByte(CP_UTF8, 0, in.c_str(), static_cast<int>(in.size()), nullptr, 0, nullptr, nullptr);
+  std::string out(static_cast<size_t>(size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, in.c_str(), static_cast<int>(in.size()), &out[0], size, nullptr, nullptr);
   return out;
 }
 
@@ -75,6 +90,62 @@ bool g_quiet = false;
 
 // Quiet means quiet, including when it goes wrong: a silent install that stops
 // to argue in a dialog is not silent, and the exit code already carries it.
+// Rewrite the mod's id where a profile has it ticked.
+//
+// A profile lists mods by id, and the id is the folder name - so renaming the
+// folder without this would quietly untick the mod for anybody who already had
+// it on, and leave them wondering why it stopped loading. Passing an empty
+// `to` removes the line instead, which is what uninstalling wants.
+void renameInProfiles(const std::wstring& loader, const std::wstring& to, const std::wstring& alsoRemove) {
+  const std::wstring dir = loader + L"\\database\\TmForever\\profiles";
+
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((dir + L"\\*.yaml").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return;
+
+  do {
+    const std::wstring path = dir + L"\\" + find.cFileName;
+
+    std::string text;
+    {
+      HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (file == INVALID_HANDLE_VALUE) continue;
+      char buffer[8192];
+      DWORD read = 0;
+      while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
+      CloseHandle(file);
+    }
+    if (text.empty() || text.size() > 64 * 1024) continue;
+
+    const std::string wanted = wide(to);
+    bool changed = false;
+    for (const wchar_t* old : kOldProducts) {
+      const std::string needle = "id: " + wide(old);
+      size_t at = text.find(needle);
+      while (at != std::string::npos) {
+        // Only a whole id: "100TMX" must not match inside "100TMX Legacy".
+        const size_t after = at + needle.size();
+        const bool wholeLine = after >= text.size() || text[after] == '\n' || text[after] == '\r';
+        if (wholeLine) {
+          text.replace(at, needle.size(), alsoRemove.empty() ? ("id: '" + wanted + "'") : std::string("id: __removed__"));
+          changed = true;
+        }
+        at = text.find(needle, at + 1);
+      }
+    }
+    if (!changed) continue;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) continue;
+    DWORD written = 0;
+    WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+  } while (FindNextFileW(handle, &find));
+
+  FindClose(handle);
+}
+
 int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
   if (g_quiet) return IDOK;
   return MessageBoxW(nullptr, text.c_str(), kTitle, MB_OK | icon);
@@ -95,11 +166,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   }
 
   const std::wstring loader = local + L"\\TMLoader";
-  const std::wstring product = loader + L"\\database\\TmForever\\products\\100TMX";
+  const std::wstring products = loader + L"\\database\\TmForever\\products";
+  const std::wstring product = products + L"\\" + kProduct;
   const std::wstring target = product + L"\\" + kVersion;
 
   if (uninstall) {
     removeVersionDir(product);
+    for (const wchar_t* old : kOldProducts) removeVersionDir(products + L"\\" + old);
+    renameInProfiles(loader, kProduct, L"");
     if (!quiet) say(L"100% TMX + Bingo has been removed from the ModLoader.\n\nYour settings in Documents\\100TMX are left alone.");
     return 0;
   }
@@ -126,6 +200,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   }
 
   SHCreateDirectoryExW(nullptr, target.c_str(), nullptr);
+
+  // An older install sat under a different folder name, which is also the id a
+  // profile ticked. Move both across before writing, so an update keeps working
+  // instead of silently switching itself off.
+  for (const wchar_t* old : kOldProducts) {
+    const std::wstring previous = products + L"\\" + old;
+    if (GetFileAttributesW(previous.c_str()) != INVALID_FILE_ATTRIBUTES) removeVersionDir(previous);
+  }
+  renameInProfiles(loader, kProduct, L"");
 
   // The name in the ModLoader's list. Bingo leads, because that is the half
   // somebody is looking for when they scroll past it.
@@ -158,11 +241,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   }
 
   if (!quiet) {
-    say(L"100% TMX is installed.\n\n"
+    say(L"100% TMX + Bingo is installed.\n\n"
         L"1. Open the TrackMania ModLoader\n"
-        L"2. Tick 100TMX in the list\n"
-        L"3. Start the game and press F9\n\n"
-        L"Then: Connection → Connect, and approve the code at 100tmx.com/link.");
+        L"2. Tick \"100% TMX + Bingo\" in the list\n"
+        L"3. Start the game\n\n"
+        L"Then: Connect on the panel, or press F9 for the settings window.");
   }
   return 0;
 }

@@ -94,11 +94,15 @@ The ModLoader has no "mods folder". It keeps a product database, and installing
 means three files in it:
 
 ```
-%LOCALAPPDATA%\TMLoader\database\TmForever\products\100TMX\
+%LOCALAPPDATA%\TMLoader\database\TmForever\products\100% TMX + Bingo\
     description.yaml          name / author / description
-    0.1.0\description.yaml    executable: 100TMX.dll  (+ CoreMod dependency)
-    0.1.0\100TMX.dll
+    0.5.0\description.yaml    executable: 100TMX.dll  (+ CoreMod dependency)
+    0.5.0\100TMX.dll
 ```
+
+The folder is what the ModLoader shows in its list, which is why it is spelled
+out rather than shortened. Updating from an older version also rewrites the id
+in your profiles, so a mod that was ticked stays ticked.
 
 Nothing else is touched: no registry, no game folder, no startup entry. The
 PowerShell script `install-modloader.ps1` in this repo does exactly the same
