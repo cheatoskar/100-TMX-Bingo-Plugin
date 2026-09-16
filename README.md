@@ -84,9 +84,10 @@ each with a small `description.yaml`. The script does that for you:
 By hand, if you prefer, it is three files:
 
 ```
-%LOCALAPPDATA%\TMLoader\database\TmForever\products@TMX    description.yaml            name / author / description
-    0.1.0\description.yaml      executable: 100TMX.dll  (+ CoreMod dependency)
-    0.1.0@TMX.dll
+%LOCALAPPDATA%\TMLoader\database\TmForever\products\100TMX\
+    description.yaml          name / author / description
+    0.1.0\description.yaml    executable: 100TMX.dll  (+ CoreMod dependency)
+    0.1.0\100TMX.dll
 ```
 
 ### With an ASI loader (no ModLoader)
