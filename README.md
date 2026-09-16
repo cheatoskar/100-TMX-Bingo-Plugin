@@ -7,8 +7,8 @@ Load a map and the panel tells you whether anybody has ever finished it, what it
 is worth, and whether it is a tile on one of your bingo boards — then lets you
 start the next map without leaving the game.
 
-> **Status: early.** The mod builds, but it has not been through a season of
-> real use yet. If the panel says *"This TrackMania build is not recognised"*,
+> **Status: early.** v0.1.0 builds clean and loads without crashing, but it has
+> not been through a session of real play yet. If the panel says *"This TrackMania build is not recognised"*,
 > see [Unrecognised build](#unrecognised-build) — it is a five-minute fix and a
 > useful bug report.
 
