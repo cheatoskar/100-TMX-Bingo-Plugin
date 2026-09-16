@@ -15,7 +15,7 @@ this one, and what is it worth?
 
 ![The bingo panel and the settings window, in game](images/BingoIngame.png)
 
-> **Status: early.** v0.2.0 runs, and has been through a real session on
+> **Status: early.** v0.5.1 runs, and has been through real sessions on
 > Nations Forever. If the panel says a build is not recognised, see
 > [Unrecognised build](#unrecognised-build) - that is a five-minute fix and a
 > useful bug report.
@@ -52,14 +52,16 @@ is playing.
   is done, and names who got it.
 - **Your mark on the remaining list.** The map you are on shows as *being
   played* on the website, so two people do not spend an evening on the same map
-  by accident. It expires after two hours by itself, drops the moment you leave
-  the map, and it is a courtesy signal, never a reservation.
+  by accident - with how far through the lap you are. It goes the moment you
+  leave the map or close the game, and expires by itself within minutes if the
+  game dies without saying so. A courtesy signal, never a reservation.
 - **Excluded maps are called out** before you waste a run on one.
 
 **Everything else**
 
-- **Settings in-game** (F9): connect or disconnect, the sharing switch, panel
-  side, size and opacity.
+- **Settings in-game** (F9): connect or disconnect, the sharing switch, and how
+  the panel behaves. The panel itself is dragged and resized directly - big
+  enough and the tiles become the maps' own screenshots.
 - **Nothing is sent until you say so.** Connecting a machine is one deliberate
   act; sharing what you play is a separate question, asked once, right after.
 - **Nothing is written to the game.** The mod only reads, and it never patches,
@@ -94,7 +96,8 @@ back off them. Lines are worth extra, so the middle of the board matters.
    exchange and checks it - that is the only thing that captures a tile, from
    the game or from the browser.
 5. **Watch it move.** Whoever holds a tile, and the time you would have to beat,
-   updates for everybody within seconds.
+   reaches the website immediately and everybody else's panel within about
+   twenty seconds.
 
 There is a **weekly board** too, open to anyone, at
 [100tmx.com/events/bingo](https://100tmx.com/events/bingo) - and a *How it
