@@ -1,16 +1,27 @@
 // Getting a frame to draw in.
 //
-// Direct3D 9 dispatches through a vtable that every device of that class
-// shares, so swapping two entries in it is enough to be called on every frame -
-// no inline patching, no trampoline allocation, no MinHook. The vtable itself
-// is read from a throwaway device created on a hidden window, which is the
-// standard trick (kiero does the same) and never touches the game's own device.
+// Direct3D 9 dispatches through a vtable that every device of a class shares,
+// so swapping entries in it is enough to be called on every frame - no inline
+// patching, no trampoline allocation, no MinHook. The vtable is read from a
+// throwaway device created on a hidden window, which is the standard trick
+// (kiero does the same) and never touches the game's own device.
 //
-// Two entries are taken: EndScene, where the overlay is drawn, and Reset, where
-// the ImGui backend has to let go of its device objects before the device is
-// recreated - skip that one and alt-tabbing out of fullscreen is a crash.
+// There are **two** such classes in a modern d3d9.dll: the plain
+// IDirect3DDevice9 and IDirect3DDevice9Ex, each with its own table. Which one a
+// game draws through is not knowable from here, and patching only the plain one
+// is exactly the bug that made this mod invisible - the hook reported success
+// while the game rendered through the other table. So both are taken.
+//
+// Three entries per table: EndScene, where the overlay is drawn; Present, as a
+// fallback for anything that reaches the screen without EndScene; and Reset,
+// where the ImGui backend must let go of its device objects before the device
+// is recreated - skip that one and alt-tabbing out of fullscreen is a crash.
 #include <windows.h>
 #include <d3d9.h>
+#include <tlhelp32.h>
+
+#include <cwctype>
+#include <string>
 
 #include "hook.h"
 #include "log.h"
@@ -23,15 +34,27 @@ namespace hook {
 namespace {
 
 using EndSceneFn = HRESULT(APIENTRY*)(IDirect3DDevice9*);
+using PresentFn = HRESULT(APIENTRY*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
 using ResetFn = HRESULT(APIENTRY*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+using CreateExFn = HRESULT(WINAPI*)(UINT, IDirect3D9Ex**);
 
-// IDirect3DDevice9's vtable layout, which has not changed since 2004.
+// IDirect3DDevice9's vtable layout, unchanged since 2004. IDirect3DDevice9Ex
+// inherits it, so the same indices hold there - its extra methods come after.
 constexpr int kResetIndex = 16;
+constexpr int kPresentIndex = 17;
 constexpr int kEndSceneIndex = 42;
 
-void** g_vtable = nullptr;
-EndSceneFn g_endScene = nullptr;
-ResetFn g_reset = nullptr;
+struct Patched {
+  const char* name = "";
+  void** vtable = nullptr;
+  EndSceneFn endScene = nullptr;
+  PresentFn present = nullptr;
+  ResetFn reset = nullptr;
+};
+
+Patched g_tables[2];
+int g_tableCount = 0;
+bool g_drewOnce = false;
 
 bool writePointer(void** slot, void* value) {
   DWORD previous = 0;
@@ -41,33 +64,76 @@ bool writePointer(void** slot, void* value) {
   return true;
 }
 
-bool g_drewOnce = false;
+Patched* tableFor(void** vtable) {
+  for (int i = 0; i < g_tableCount; i++) {
+    if (g_tables[i].vtable == vtable) return &g_tables[i];
+  }
+  return nullptr;
+}
 
-HRESULT APIENTRY endSceneDetour(IDirect3DDevice9* device) {
+Patched* tableOf(IDirect3DDevice9* device) {
+  return tableFor(*reinterpret_cast<void***>(device));
+}
+
+void drawOnce(IDirect3DDevice9* device, const char* where) {
   if (!g_drewOnce) {
     g_drewOnce = true;
-    log::line("first EndScene from the game - the overlay is live");
+    log::line("first %s from the game - the overlay is live", where);
   }
   // Everything the overlay does is bounded and local: it reads a copy of the
   // shared state and draws. It never waits on the network - that is the whole
   // reason the worker thread exists.
   overlay::draw(device);
-  return g_endScene(device);
+}
+
+HRESULT APIENTRY endSceneDetour(IDirect3DDevice9* device) {
+  Patched* table = tableOf(device);
+  if (!table) return S_OK;  // should not happen, and must not crash a game if it does
+  drawOnce(device, "EndScene");
+  return table->endScene(device);
+}
+
+// The belt to EndScene's braces: anything that reaches the screen has to
+// Present, so a game whose EndScene we never see is still reachable here. It
+// only draws while EndScene has not fired, so the two never both run in a frame.
+HRESULT APIENTRY presentDetour(IDirect3DDevice9* device, const RECT* src, const RECT* dst, HWND window,
+                               const RGNDATA* dirty) {
+  Patched* table = tableOf(device);
+  if (!table) return S_OK;
+  if (!g_drewOnce) drawOnce(device, "Present");
+  return table->present(device, src, dst, window, dirty);
 }
 
 HRESULT APIENTRY resetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
+  Patched* table = tableOf(device);
   overlay::invalidate();
-  return g_reset(device, params);
+  return table ? table->reset(device, params) : D3DERR_INVALIDCALL;
 }
 
-// A device that exists only to be asked where its methods live.
-//
-// Creating one is the fragile step of the whole mod, and it fails for reasons
-// that have nothing to do with the game: a driver that refuses a HAL device on
-// an invisible window, a session with no display, an adapter in a mode the
-// device cannot match. So it is not one attempt but a list of them, each logged
-// with its HRESULT - and the last one, NULLREF, needs no display at all and
-// exists precisely for tools that only want to read the vtable.
+D3DPRESENT_PARAMETERS probeParams(HWND target) {
+  D3DPRESENT_PARAMETERS params{};
+  params.Windowed = TRUE;
+  params.SwapEffect = D3DSWAPEFFECT_DISCARD;
+  params.hDeviceWindow = target;
+  params.BackBufferFormat = D3DFMT_UNKNOWN;
+  // A real size, not zero: a zero-sized backbuffer on an invisible window is
+  // what made this fail outright with D3DERR_INVALIDCALL.
+  params.BackBufferWidth = 16;
+  params.BackBufferHeight = 16;
+  return params;
+}
+
+// FPU_PRESERVE matters more than it looks: creating a device without it puts
+// the whole process's FPU into single precision, and this is a game whose
+// physics people measure in hundredths. The probe must leave no trace.
+constexpr DWORD kProbeFlags =
+    D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_NOWINDOWCHANGES | D3DCREATE_FPU_PRESERVE;
+
+// Creating the probe is the fragile step of the whole mod, and it fails for
+// reasons that have nothing to do with the game: a driver that refuses a HAL
+// device on an invisible window, a session with no display, an adapter in a
+// mode it cannot match. So it is a list of attempts, each logged with its
+// HRESULT - the last of which needs no display at all.
 IDirect3DDevice9* makeProbeDevice(IDirect3D9* d3d, HWND window) {
   struct Attempt {
     const char* name;
@@ -83,22 +149,10 @@ IDirect3DDevice9* makeProbeDevice(IDirect3D9* d3d, HWND window) {
 
   for (const Attempt& attempt : attempts) {
     HWND target = attempt.useDesktopWindow ? GetDesktopWindow() : window;
+    D3DPRESENT_PARAMETERS params = probeParams(target);
 
-    D3DPRESENT_PARAMETERS params{};
-    params.Windowed = TRUE;
-    params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    params.hDeviceWindow = target;
-    params.BackBufferFormat = D3DFMT_UNKNOWN;
-    params.BackBufferWidth = 16;
-    params.BackBufferHeight = 16;
-
-    // FPU_PRESERVE matters more here than it looks: creating a device without
-    // it puts the whole process's FPU into single precision, and this is a game
-    // whose physics people measure in hundredths. The probe must leave no trace.
     IDirect3DDevice9* device = nullptr;
-    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, attempt.type, target,
-                                   D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_NOWINDOWCHANGES | D3DCREATE_FPU_PRESERVE,
-                                   &params, &device);
+    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, attempt.type, target, kProbeFlags, &params, &device);
     if (SUCCEEDED(hr) && device) {
       log::line("probe device: %s worked", attempt.name);
       return device;
@@ -108,17 +162,110 @@ IDirect3DDevice9* makeProbeDevice(IDirect3D9* d3d, HWND window) {
   return nullptr;
 }
 
+// The Ex flavour, resolved dynamically because it does not exist on every
+// d3d9.dll this game can be run against.
+IDirect3DDevice9* makeProbeDeviceEx(HWND window) {
+  HMODULE d3d9 = GetModuleHandleW(L"d3d9.dll");
+  if (!d3d9) return nullptr;
+
+  auto create = reinterpret_cast<CreateExFn>(GetProcAddress(d3d9, "Direct3DCreate9Ex"));
+  if (!create) {
+    log::once("ex", "no Direct3DCreate9Ex in this d3d9.dll");
+    return nullptr;
+  }
+
+  IDirect3D9Ex* d3dEx = nullptr;
+  HRESULT hr = create(D3D_SDK_VERSION, &d3dEx);
+  if (FAILED(hr) || !d3dEx) {
+    log::once("ex-create", "Direct3DCreate9Ex failed (0x%08lx)", hr);
+    return nullptr;
+  }
+
+  D3DPRESENT_PARAMETERS params = probeParams(window);
+  IDirect3DDevice9Ex* device = nullptr;
+  hr = d3dEx->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window, kProbeFlags, &params, nullptr, &device);
+  d3dEx->Release();
+
+  if (FAILED(hr) || !device) {
+    log::once("ex-device", "probe device: Ex failed (0x%08lx)", hr);
+    return nullptr;
+  }
+
+  log::line("probe device: Ex worked");
+  return device;
+}
+
+bool patchTable(const char* name, IDirect3DDevice9* device) {
+  if (!device || g_tableCount >= 2) return false;
+
+  void** vtable = *reinterpret_cast<void***>(device);
+  if (tableFor(vtable)) {
+    log::line("%s device shares an already patched vtable", name);
+    return true;
+  }
+
+  Patched& table = g_tables[g_tableCount];
+  table.name = name;
+  table.vtable = vtable;
+  table.endScene = reinterpret_cast<EndSceneFn>(vtable[kEndSceneIndex]);
+  table.present = reinterpret_cast<PresentFn>(vtable[kPresentIndex]);
+  table.reset = reinterpret_cast<ResetFn>(vtable[kResetIndex]);
+
+  // Counted before the writes: a detour can be entered the instant the first
+  // pointer lands, and it finds its own table by vtable address.
+  g_tableCount++;
+
+  const bool done = writePointer(&vtable[kEndSceneIndex], reinterpret_cast<void*>(&endSceneDetour)) &&
+                    writePointer(&vtable[kPresentIndex], reinterpret_cast<void*>(&presentDetour)) &&
+                    writePointer(&vtable[kResetIndex], reinterpret_cast<void*>(&resetDetour));
+
+  log::line("%s vtable %p: EndScene %p, Present %p, patched %s", name, (void*)vtable, (void*)table.endScene,
+            (void*)table.present, done ? "yes" : "NO");
+  if (!done) g_tableCount--;
+  return done;
+}
+
 }  // namespace
 
+// Which graphics libraries are actually in this process.
+//
+// A wrapper d3d9.dll in the game folder, dgVoodoo, an ENB - any of them mean
+// the game draws through a vtable that is not the one the system d3d9 hands
+// out, and then a hook that reports success still never fires. Logged once, so
+// that case is one line in the log rather than an evening of guessing.
+void logGraphicsModules() {
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+  if (snapshot == INVALID_HANDLE_VALUE) return;
+
+  MODULEENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
+  if (Module32FirstW(snapshot, &entry)) {
+    do {
+      std::wstring name(entry.szModule);
+      for (wchar_t& c : name) c = static_cast<wchar_t>(towlower(c));
+      if (name.find(L"d3d") != std::wstring::npos || name.find(L"ddraw") != std::wstring::npos ||
+          name.find(L"opengl") != std::wstring::npos || name.find(L"dgvoodoo") != std::wstring::npos) {
+        char path[MAX_PATH]{};
+        WideCharToMultiByte(CP_UTF8, 0, entry.szExePath, -1, path, MAX_PATH, nullptr, nullptr);
+        log::once(path, "graphics module: %s", path);
+      }
+    } while (Module32NextW(snapshot, &entry));
+  }
+  CloseHandle(snapshot);
+}
+
+bool drewOnce() { return g_drewOnce; }
+
 bool install() {
-  if (g_vtable) return true;
+  if (g_tableCount > 0) return true;
+  logGraphicsModules();
 
   WNDCLASSEXW wc{};
   wc.cbSize = sizeof(wc);
   wc.lpfnWndProc = DefWindowProcW;
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"TmxProbeWindow";
-  if (!RegisterClassExW(&wc)) return false;
+  RegisterClassExW(&wc);  // harmless when an earlier attempt already registered it
 
   HWND window = CreateWindowW(wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW, 0, 0, 16, 16, nullptr, nullptr,
                               wc.hInstance, nullptr);
@@ -127,37 +274,34 @@ bool install() {
     return false;
   }
 
-  bool done = false;
-  IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION);
-  if (!d3d) log::once("d3d", "Direct3DCreate9 returned nothing - no D3D9 in this process yet");
-  if (d3d) {
+  if (IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION)) {
     if (IDirect3DDevice9* device = makeProbeDevice(d3d, window)) {
-      g_vtable = *reinterpret_cast<void***>(device);
-      g_endScene = reinterpret_cast<EndSceneFn>(g_vtable[kEndSceneIndex]);
-      g_reset = reinterpret_cast<ResetFn>(g_vtable[kResetIndex]);
-
-      done = writePointer(&g_vtable[kEndSceneIndex], reinterpret_cast<void*>(&endSceneDetour)) &&
-             writePointer(&g_vtable[kResetIndex], reinterpret_cast<void*>(&resetDetour));
-
-      log::line("vtable %p: EndScene %p, Reset %p, patched %s", (void*)g_vtable, (void*)g_endScene,
-                (void*)g_reset, done ? "yes" : "NO");
+      patchTable("plain", device);
       device->Release();
     }
     d3d->Release();
+  } else {
+    log::once("d3d", "Direct3DCreate9 returned nothing - no D3D9 in this process yet");
+  }
+
+  if (IDirect3DDevice9* deviceEx = makeProbeDeviceEx(window)) {
+    patchTable("Ex", deviceEx);
+    deviceEx->Release();
   }
 
   DestroyWindow(window);
   UnregisterClassW(wc.lpszClassName, wc.hInstance);
-
-  if (!done) g_vtable = nullptr;
-  return done;
+  return g_tableCount > 0;
 }
 
 void remove() {
-  if (!g_vtable) return;
-  if (g_endScene) writePointer(&g_vtable[kEndSceneIndex], reinterpret_cast<void*>(g_endScene));
-  if (g_reset) writePointer(&g_vtable[kResetIndex], reinterpret_cast<void*>(g_reset));
-  g_vtable = nullptr;
+  for (int i = 0; i < g_tableCount; i++) {
+    Patched& table = g_tables[i];
+    if (table.endScene) writePointer(&table.vtable[kEndSceneIndex], reinterpret_cast<void*>(table.endScene));
+    if (table.present) writePointer(&table.vtable[kPresentIndex], reinterpret_cast<void*>(table.present));
+    if (table.reset) writePointer(&table.vtable[kResetIndex], reinterpret_cast<void*>(table.reset));
+  }
+  g_tableCount = 0;
 }
 
 }  // namespace hook

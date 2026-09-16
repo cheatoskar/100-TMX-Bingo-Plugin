@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "game.h"
+#include "hook.h"
 #include "http.h"
 #include "json.h"
 #include "log.h"
@@ -358,6 +359,7 @@ void play(const std::string& playUrl) {
 // ------------------------------------------------------------------ the loop
 
 void loop() {
+  const double startedAt = nowSeconds();
   std::string lastUid;
   double lastReport = 0;
   double lastBoardRefresh = 0;
@@ -461,6 +463,13 @@ void loop() {
 
     const double now = nowSeconds();
     const bool linked = !config().token.empty();
+
+    // Twenty seconds in with a patched table and not one frame through it means
+    // the game draws through something else entirely - worth saying plainly
+    // rather than leaving "nothing happens" as the only symptom.
+    if (now - startedAt > 20 && !hook::drewOnce()) {
+      log::once("noframe", "the overlay hook is installed but the game has never called through it");
+    }
 
     if (linked && snap.inRace && !snap.uid.empty()) {
       menuSince = 0;
