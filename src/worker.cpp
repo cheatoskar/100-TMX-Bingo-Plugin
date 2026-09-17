@@ -197,7 +197,8 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
       hit.myTeam = b.integer("myTeam");
       hit.title = b.str("title");
       hit.idx = b.integer("idx");
-      hit.selfReported = b.str("verify", "board") == "trust";
+      const std::string how = b.str("verify", "board");
+      hit.selfReported = how == "trust" || how == "game";
       const Json* holder = b.child("holder");
       if (holder && !holder->isNull()) {
         hit.held = true;

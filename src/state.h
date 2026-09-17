@@ -135,7 +135,17 @@ struct BoardView {
   std::string verify;
   bool loaded = false;
 
-  bool selfReported() const { return verify == "trust"; }
+  /**
+   * Boards this overlay may put a time on.
+   *
+   * "trust" also takes one typed on the website; "game" takes one from here and
+   * nowhere else, so on that kind the overlay is the only way in and the site's
+   * own button is closed. Both are self-reported - the second is a house rule
+   * about where the number comes from, not a check that it is true.
+   */
+  bool selfReported() const { return verify == "trust" || verify == "game"; }
+  /** The website cannot take a tile here, so the overlay must always offer to. */
+  bool gameOnly() const { return verify == "game"; }
 };
 
 // The current map's place on a board the player is in.
