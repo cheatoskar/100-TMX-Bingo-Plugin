@@ -21,26 +21,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # TrackMania Forever is a 32-bit process, so the DLL must be Win32. The
-      # runner has MSVC and CMake already; nothing else is needed.
       # The tag is the version, when there is one. Without this the installer
-      # registers whatever CMakeLists last said, which is how it sat at 0.5.0
-      # through four releases - a second place to remember is a place that goes
-      # stale.
+      # registers whatever CMakeLists last said, which is how it came to sit at
+      # 0.5.0 through four releases - a second place to remember is a place that
+      # goes stale.
+      #
+      # The step emits the whole flag rather than the bare number, so the
+      # Configure line below needs no conditional expression: on a branch build
+      # it is simply empty and CMakeLists' own version stands.
       - name: Version
         id: v
         shell: bash
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            echo "flag=-DTMX_VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "flag=" >> "$GITHUB_OUTPUT"
           fi
 
+      # TrackMania Forever is a 32-bit process, so the DLL must be Win32. The
+      # runner has MSVC and CMake already; nothing else is needed.
       - name: Configure
-        run: >
-          cmake -S . -B build -A Win32
-          ${{ steps.v.outputs.value && format('-DTMX_VERSION={0}', steps.v.outputs.value) || '' }}
+        run: cmake -S . -B build -A Win32 ${{ steps.v.outputs.flag }}
 
       - name: Build
         run: cmake --build build --config Release
