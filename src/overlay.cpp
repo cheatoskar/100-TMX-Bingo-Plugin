@@ -144,10 +144,13 @@ bool interactive() {
   if (g_uiOpen) return true;
   // 0 BeforeStart, 1 Running, 2 Finished. Only the middle one is a run.
   if (g_raceState == 1) return false;
-  if (g_raceState == 0 || g_raceState == 2) return true;
-  // The state could not be read for this build - fall back to the old, blunter
-  // rule rather than risk taking the mouse mid-race on an unknown one.
-  return !g_inRace;
+  // Unknown too. A build whose race state will not read used to fall back to
+  // "a map is loaded means hands off", which on such a build means the panel is
+  // *never* clickable except through F9 - reported as the board working until
+  // the settings window is closed again, which is exactly that. A panel nobody
+  // can press is useless, and the cost of the other choice is a stray click
+  // landing on a small box in a corner. Take the click.
+  return true;
 }
 
 void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0, int time = 0) {
@@ -197,7 +200,6 @@ void drawMapBlock(const State& state) {
   } else if (map.justFinished) {
     ImGui::TextColored(kTaken, "Just finished%s%s", map.justFinishedBy.empty() ? "" : " by ",
                        map.justFinishedBy.c_str());
-    ImGui::TextWrapped("TMX has a replay on it now - it is no longer worth the run.");
   } else if (map.open == 0) {
     if (map.finishedBy.empty()) {
       ImGui::TextColored(kDone, "Already finished");
@@ -577,8 +579,15 @@ void drawPanel(const State& state) {
 // --------------------------------------------------------------- the settings
 
 void drawSettings(const State& state) {
-  ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);
-  if (!ImGui::Begin("100% TMX", &g_uiOpen)) {
+  // A real height, and the scrollbar always reserved.
+  //
+  // With an auto height (0) and wrapped text the window oscillates: it grows to
+  // fit, hits the screen, gains a scrollbar, the scrollbar narrows the wrap
+  // width, the text gets taller, the window regrows - a judder with a scrollbar
+  // flickering in and out. Reserving the bar means the wrap width never changes,
+  // which is what actually stops it.
+  ImGui::SetNextWindowSize(ImVec2(430, 520), ImGuiCond_FirstUseEver);
+  if (!ImGui::Begin("100% TMX", &g_uiOpen, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
     ImGui::End();
     return;
   }

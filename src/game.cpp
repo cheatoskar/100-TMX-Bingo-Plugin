@@ -1,5 +1,7 @@
 #include "game.h"
 
+#include "log.h"
+
 #include <windows.h>
 
 #include <cstdio>
@@ -35,6 +37,11 @@ uintptr_t exeBase() {
 
 // A pointer that could plausibly be one. Cheap first gate before the guarded
 // read, because most wrong offsets produce either zero or something tiny.
+// Where the walk to the player info actually goes on this build, once found,
+// and the race object it was found for. See `findRacePlayerInfo`.
+uintptr_t g_raceInfoFound = 0;
+uintptr_t g_raceInfoFor = 0;
+
 bool plausible(uintptr_t address) {
   return address > 0x10000 && address < 0x7FFF0000;
 }
@@ -152,6 +159,53 @@ void ensureDefaults() {
   g_profiles.push_back(baseProfile("tmf-plain", 0));
 }
 
+
+/**
+ * Find `racePlayerInfo` when the profile's value does not work.
+ *
+ * Builds differ in one step of the walk far more often than in all of it: the
+ * app pointer, the challenge and the UID read fine on the build this was
+ * written for, and it stops dead at the hop from the race to the player info.
+ * Rather than ship a profile per build - which means a release per player - the
+ * mod looks for the offset itself.
+ *
+ * The search is narrow on purpose. Only this one hop varies; everything after
+ * it is taken from the profile, and a candidate only counts if the *whole*
+ * remaining chain lands on a race state in 0..2 and a lap time that is not
+ * absurd. A pointer that happens to be readable will not satisfy all of that.
+ *
+ * Every read is SEH-guarded, so walking through addresses that are not mapped
+ * costs a failed read and nothing else.
+ *
+ * The answer is logged in the form config.ini wants, so somebody can pin it and
+ * stop the search running at all - and so a build can be folded into the
+ * built-in profiles once a few people report the same number.
+ */
+uintptr_t findRacePlayerInfo(const Offsets& o, uintptr_t race) {
+  for (uintptr_t k = 0x40; k <= 0x800; k += 4) {
+    const uintptr_t info = deref(race + k);
+    if (!plausible(info)) continue;
+    const uintptr_t player = deref(info + o.playerInfoPlayer);
+    if (!plausible(player)) continue;
+    const uintptr_t sub = deref(player + o.playerSub);
+    if (!plausible(sub)) continue;
+
+    int state = 0;
+    if (!readAt<int>(sub + o.playerState, &state) || state < 0 || state > 2) continue;
+    int time = 0;
+    if (!readAt<int>(sub + o.playerTime, &time)) continue;
+    // A lap under half an hour, or the clock not started. Anything else is a
+    // coincidence rather than a race.
+    if (time < -1 || time > 30 * 60 * 1000) continue;
+
+    log::line("game: found race_player_info at 0x%X (profile said 0x%X) - put this in config.ini under [offsets]: "
+              "race_player_info = 0x%X",
+              static_cast<unsigned>(k), static_cast<unsigned>(o.racePlayerInfo), static_cast<unsigned>(k));
+    return k;
+  }
+  return 0;
+}
+
 // Does this profile produce a real UID right now? Only answerable while a map
 // is loaded, which is why attaching is retried rather than done once at startup.
 bool validate(const Offsets& o) {
@@ -266,8 +320,17 @@ Snapshot read() {
   }
   uintptr_t info = deref(race + o.racePlayerInfo);
   if (!plausible(info)) {
-    snap.raceStep = 2;
-    return snap;
+    // The profile's offset does not work on this build. Look for the right one
+    // once per race object rather than every quarter second, and remember it.
+    if (g_raceInfoFor != race) {
+      g_raceInfoFor = race;
+      g_raceInfoFound = findRacePlayerInfo(o, race);
+    }
+    if (g_raceInfoFound) info = deref(race + g_raceInfoFound);
+    if (!plausible(info)) {
+      snap.raceStep = 2;
+      return snap;
+    }
   }
   uintptr_t player = deref(info + o.playerInfoPlayer);
   if (!plausible(player)) {
