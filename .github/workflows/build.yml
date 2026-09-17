@@ -66,9 +66,18 @@ jobs:
           $want = $line.Matches[0].Groups[1].Value
           Write-Host "expecting: '$want'"
           if (-not $want) { Write-Error "no version was configured at all"; exit 1 }
-          $hit = Select-String -Path build/Release/100TMX-Installer.exe -Pattern $want -Encoding unicode -Quiet
-          if ($hit) { Write-Host "OK - the installer carries $want" }
-          else { Write-Error "the installer does not contain $want"; exit 1 }
+          # Bytes, not Select-String. Its binary and encoding behaviour differs
+          # between Windows PowerShell and pwsh, which is why this check passed
+          # in CI and failed against the very same file locally - the checking
+          # was wronger than the thing being checked.
+          $bytes = [System.IO.File]::ReadAllBytes("build/Release/100TMX-Installer.exe")
+          $text  = [System.Text.Encoding]::Unicode.GetString($bytes)
+          if ($text.Contains($want)) {
+            Write-Host "OK - the installer carries $want"
+          } else {
+            Write-Host "::error::the installer does not contain '$want' ($($bytes.Length) bytes built)"
+            exit 1
+          }
 
       - name: Collect
         run: |
@@ -91,6 +100,7 @@ jobs:
             out/100TMX-Installer.exe
             out/100TMX.dll
             out/100TMX.asi
+            out/tmx_version.h
           # A release missing the file everybody is told to download should fail
           # the build, not publish quietly without it - which is exactly what
           # v0.2.0 did.

@@ -214,7 +214,11 @@ void drawMapBlock(const State& state) {
 
   if (map.claimed) {
     ImGui::TextColored(kMine, "Marked as yours on the site");
-  } else if (!map.refused.empty()) {
+  } else if (!map.refused.empty() && map.open != 0) {
+    // Not when the map is already finished: the line above this one has just
+    // said so, and the server's refusal for that case says it again in other
+    // words. The text comes from the site, which is why deleting it from the
+    // mod's own strings changed nothing.
     ImGui::TextColored(kMuted, "%s", map.refused.c_str());
   } else if (!config().shareWhatIAmPlaying) {
     ImGui::TextColored(kMuted, "Sharing is off");

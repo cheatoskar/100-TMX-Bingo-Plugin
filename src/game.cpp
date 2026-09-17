@@ -9,6 +9,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <mutex>
+#include <vector>
 
 namespace tmx {
 namespace game {
@@ -37,11 +38,6 @@ uintptr_t exeBase() {
 
 // A pointer that could plausibly be one. Cheap first gate before the guarded
 // read, because most wrong offsets produce either zero or something tiny.
-// Where the walk to the player info actually goes on this build, once found,
-// and the race object it was found for. See `findRacePlayerInfo`.
-uintptr_t g_raceInfoFound = 0;
-uintptr_t g_raceInfoFor = 0;
-
 bool plausible(uintptr_t address) {
   return address > 0x10000 && address < 0x7FFF0000;
 }
@@ -166,42 +162,105 @@ void ensureDefaults() {
  * Builds differ in one step of the walk far more often than in all of it: the
  * app pointer, the challenge and the UID read fine on the build this was
  * written for, and it stops dead at the hop from the race to the player info.
- * Rather than ship a profile per build - which means a release per player - the
- * mod looks for the offset itself.
+ * Rather than ship a profile per build - a release per player - the mod looks
+ * for the offset itself.
  *
- * The search is narrow on purpose. Only this one hop varies; everything after
- * it is taken from the profile, and a candidate only counts if the *whole*
- * remaining chain lands on a race state in 0..2 and a lap time that is not
- * absurd. A pointer that happens to be readable will not satisfy all of that.
+ * **A single pass is not enough, and the first version of this proved it.** Any
+ * pointer chain landing on an int that happens to be 0..2 and another that
+ * happens to look like a lap time will pass, and on a real build two different
+ * offsets did: 0x620 on one run and 0x44 on the next. Both cannot be right.
  *
- * Every read is SEH-guarded, so walking through addresses that are not mapped
- * costs a failed read and nothing else.
- *
- * The answer is logged in the form config.ini wants, so somebody can pin it and
- * stop the search running at all - and so a build can be folded into the
- * built-in profiles once a few people report the same number.
+ * So a candidate has to show a *running clock*. The first pass collects every
+ * offset whose chain reads plausibly and remembers its time; a later pass keeps
+ * only those whose time has moved. Nothing else in the process advances a
+ * millisecond counter in lockstep with a race, which is what makes it a real
+ * discriminator rather than a tighter guess. The answer is only adopted when
+ * exactly one candidate survives - two survivors mean the test was still too
+ * weak, and taking either would be the same mistake again.
  */
-uintptr_t findRacePlayerInfo(const Offsets& o, uintptr_t race) {
+struct Candidate {
+  uintptr_t offset = 0;
+  int time = 0;
+  unsigned tick = 0;
+  int advances = 0;   // times its clock moved in step with the wall clock
+};
+
+std::vector<Candidate> g_candidates;
+uintptr_t g_raceInfoFound = 0;
+uintptr_t g_raceInfoFor = 0;
+
+// Reads the rest of the chain from a candidate offset. False when any step of
+// it does not look like a player.
+bool chainReads(const Offsets& o, uintptr_t race, uintptr_t k, int* state, int* time) {
+  const uintptr_t info = deref(race + k);
+  if (!plausible(info)) return false;
+  const uintptr_t player = deref(info + o.playerInfoPlayer);
+  if (!plausible(player)) return false;
+  const uintptr_t sub = deref(player + o.playerSub);
+  if (!plausible(sub)) return false;
+  if (!readAt<int>(sub + o.playerState, state) || *state < 0 || *state > 2) return false;
+  if (!readAt<int>(sub + o.playerTime, time)) return false;
+  // A lap under half an hour, or a clock that has not started.
+  return *time >= -1 && *time <= 30 * 60 * 1000;
+}
+
+// Everything that could be it. Cheap enough to redo per race object: a few
+// hundred guarded reads, each of which costs a failed page access at worst.
+void collectCandidates(const Offsets& o, uintptr_t race) {
+  g_candidates.clear();
+  const unsigned now = GetTickCount();
   for (uintptr_t k = 0x40; k <= 0x800; k += 4) {
-    const uintptr_t info = deref(race + k);
-    if (!plausible(info)) continue;
-    const uintptr_t player = deref(info + o.playerInfoPlayer);
-    if (!plausible(player)) continue;
-    const uintptr_t sub = deref(player + o.playerSub);
-    if (!plausible(sub)) continue;
+    int state = 0, time = 0;
+    if (chainReads(o, race, k, &state, &time)) g_candidates.push_back({k, time, now, 0});
+  }
+  log::line("game: %zu candidate race_player_info offsets - watching for one whose clock keeps time",
+            g_candidates.size());
+}
 
-    int state = 0;
-    if (!readAt<int>(sub + o.playerState, &state) || state < 0 || state > 2) continue;
-    int time = 0;
-    if (!readAt<int>(sub + o.playerTime, &time)) continue;
-    // A lap under half an hour, or the clock not started. Anything else is a
-    // coincidence rather than a race.
-    if (time < -1 || time > 30 * 60 * 1000) continue;
+/**
+ * Narrow the candidates by watching their clocks.
+ *
+ * The first version of this took the first chain that read plausibly, and on a
+ * real build that gave 0x620 one run and 0x44 the next - both cannot be right,
+ * and a test that accepts either is not a test. Plenty of integers sit in 0..2
+ * and plenty of others look like a lap time.
+ *
+ * What nothing else in the process does is advance a millisecond counter *in
+ * step with the wall clock*. So each pass compares the candidate's movement
+ * against how long actually elapsed: a real race timer advances by roughly that
+ * much, a coincidence does not. Three such agreements in a row is taken as
+ * proof; at 250 ms a pass that is about a second of driving.
+ */
+uintptr_t narrowCandidates(const Offsets& o, uintptr_t race) {
+  const unsigned now = GetTickCount();
+  std::vector<Candidate> alive;
 
-    log::line("game: found race_player_info at 0x%X (profile said 0x%X) - put this in config.ini under [offsets]: "
-              "race_player_info = 0x%X",
-              static_cast<unsigned>(k), static_cast<unsigned>(o.racePlayerInfo), static_cast<unsigned>(k));
-    return k;
+  for (Candidate c : g_candidates) {
+    int state = 0, time = 0;
+    if (!chainReads(o, race, c.offset, &state, &time)) continue;   // stopped making sense
+
+    const int elapsed = static_cast<int>(now - c.tick);
+    const int moved = time - c.time;
+    if (moved != 0) {
+      // Forwards, and by about as long as we waited. A 50 ms allowance either
+      // way for the loop not being a metronome.
+      const bool keepsTime = moved > 0 && moved <= elapsed + 50;
+      if (!keepsTime) continue;   // jumped, or ran backwards: not a race clock
+      c.advances++;
+      c.time = time;
+      c.tick = now;
+    }
+    alive.push_back(c);
+  }
+
+  g_candidates = alive;
+  for (const Candidate& c : g_candidates) {
+    if (c.advances < 3) continue;
+    log::line("game: race_player_info is 0x%X on this build (profile said 0x%X) - pin it with "
+              "race_player_info = 0x%X under [offsets] in config.ini",
+              static_cast<unsigned>(c.offset), static_cast<unsigned>(o.racePlayerInfo),
+              static_cast<unsigned>(c.offset));
+    return c.offset;
   }
   return 0;
 }
@@ -324,8 +383,10 @@ Snapshot read() {
     // once per race object rather than every quarter second, and remember it.
     if (g_raceInfoFor != race) {
       g_raceInfoFor = race;
-      g_raceInfoFound = findRacePlayerInfo(o, race);
+      g_raceInfoFound = 0;
+      collectCandidates(o, race);
     }
+    if (!g_raceInfoFound) g_raceInfoFound = narrowCandidates(o, race);
     if (g_raceInfoFound) info = deref(race + g_raceInfoFound);
     if (!plausible(info)) {
       snap.raceStep = 2;
