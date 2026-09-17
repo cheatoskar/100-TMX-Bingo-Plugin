@@ -32,10 +32,16 @@ this one, and what is it worth?
   tile you are standing on outlined.
 - **The time to beat** on every tile, and who holds it. No alt-tabbing to check
   whether that run was good enough.
+- **Teams**, when the board is played in sides: one colour for your whole team,
+  the standing scored per side, and a tile your own team already holds says so —
+  beating a teammate moves the tile and wins the side nothing.
 - **Play this map**: hands the running game a TMX ManiaCode, which downloads the
   map and starts it. Pick a tile, drive it, next.
 - **"I uploaded it"**: after you put the replay on TMX, one button asks the site
   to check the tile. The site reads TMX and believes only that.
+- **On a self-reported board**, where the site checks nothing, the overlay can
+  put the run you just finished straight onto the tile — one button, or
+  automatically if you switch that on. Only there; see below.
 
 The boards themselves live on the website — drawn weekly, or built privately
 for an evening — and the panel is a window onto the same board everybody else
@@ -113,6 +119,18 @@ Three things before a board means anything, and each exists for a reason:
 4. **Upload the replay to TMX**, then press *I uploaded it*. The site reads the
    exchange and checks - that is the only thing that captures a tile, from the
    game or the browser.
+
+   Unless the board says otherwise. TMX refuses a replay slower than your own
+   record, so on maps you have already beaten you cannot upload a new one at
+   all - which used to mean a bingo on those maps could never be captured.
+   Whoever builds the board now picks what counts: a replay driven for the
+   board, **any** replay on TMX whatever its age (the one for maps you have all
+   played - your existing time takes the tile, and beating somebody still means
+   going faster, which TMX does accept), or **no check at all**. On that last
+   kind the overlay can submit the run you just drove, because such a board is
+   self-reported by design and says so on its face. On the other two it cannot,
+   for the same reason it may never write to the archive: a program on your PC
+   is not evidence.
 5. **Watch it move.** A capture reaches the website immediately and everybody
    else's overlay within about twenty seconds.
 

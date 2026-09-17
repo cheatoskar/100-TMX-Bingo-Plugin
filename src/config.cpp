@@ -136,6 +136,7 @@ void Config::save() const {
        << "token = " << token << "\n\n"
        << "[mod]\n"
        << "share = " << (shareWhatIAmPlaying ? "true" : "false") << "\n"
+       << "auto_submit = " << (autoSubmitSelfReported ? "true" : "false") << "\n"
        << "overlay = " << (overlay ? "true" : "false") << "\n"
        << "corner = " << overlayCorner << "\n"
        << "scale = " << overlayScale << "\n"

@@ -145,6 +145,17 @@ void startLink() {
 
 // ------------------------------------------------------------------- the site
 
+// "#4ade80" as the number ImGui wants. The site sends its palette as CSS hex,
+// which is the one format both ends can read without a lookup table.
+unsigned int parseColor(const std::string& hex) {
+  if (hex.size() < 7 || hex[0] != '#') return 0;
+  const unsigned long value = strtoul(hex.c_str() + 1, nullptr, 16);
+  const unsigned int r = (value >> 16) & 0xFF;
+  const unsigned int g = (value >> 8) & 0xFF;
+  const unsigned int b = value & 0xFF;
+  return 0xFF000000u | (b << 16) | (g << 8) | r;  // ImGui packs ABGR
+}
+
 void applyMapAnswer(const Json& data, const std::string& uid) {
   MapStatus map;
   map.uid = uid;
@@ -182,14 +193,20 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
     for (const Json& b : boards->array) {
       BoardHit hit;
       hit.boardId = b.str("boardId");
+      hit.teams = b.integer("teams");
+      hit.myTeam = b.integer("myTeam");
       hit.title = b.str("title");
       hit.idx = b.integer("idx");
+      hit.selfReported = b.str("verify", "board") == "trust";
       const Json* holder = b.child("holder");
       if (holder && !holder->isNull()) {
         hit.held = true;
         hit.mine = holder->flag("mine");
         hit.holderName = holder->str("name");
         hit.holderTime = holder->integer("replayTime");
+        hit.holderTeam = holder->integer("team");
+        hit.holderTeamName = holder->str("teamName");
+        hit.holderColor = parseColor(holder->str("color"));
       }
       hits.push_back(hit);
     }
@@ -295,23 +312,15 @@ void loadBoards() {
       summary.title = b.str("title");
       summary.size = b.integer("size", 5);
       summary.endsAt = b.str("endsAt");
+      // 0 on an ordinary board, so a picker that ignores this still reads right.
+      summary.teams = b.integer("teams");
+      summary.myTeam = b.integer("myTeam");
       boards.push_back(summary);
     }
   }
 
   shared().write([&](State& s) { s.boards = boards; });
   note("boards up to date");
-}
-
-// "#4ade80" as the number ImGui wants. The site sends its palette as CSS hex,
-// which is the one format both ends can read without a lookup table.
-unsigned int parseColor(const std::string& hex) {
-  if (hex.size() < 7 || hex[0] != '#') return 0;
-  const unsigned long value = strtoul(hex.c_str() + 1, nullptr, 16);
-  const unsigned int r = (value >> 16) & 0xFF;
-  const unsigned int g = (value >> 8) & 0xFF;
-  const unsigned int b = value & 0xFF;
-  return 0xFF000000u | (b << 16) | (g << 8) | r;  // ImGui packs ABGR
 }
 
 void loadBoard(const std::string& id) {
@@ -332,6 +341,14 @@ void loadBoard(const std::string& id) {
     view.kind = b->str("kind");
     view.size = b->integer("size", 5);
     view.endsAt = b->str("endsAt");
+    view.teamCount = b->integer("teamCount");
+    view.teamSize = b->integer("teamSize");
+    view.myTeam = b->integer("myTeam");
+    view.teamAssign = b->str("teamAssign");
+    // Missing on a site older than this mod, and "board" is what every board
+    // was before the setting existed - so the strict reading is the default and
+    // no time is ever offered by accident.
+    view.verify = b->str("verify", "board");
   }
 
   const Json* tiles = data.child("tiles");
@@ -355,6 +372,8 @@ void loadBoard(const std::string& id) {
         tile.holderName = holder->str("name");
         tile.holderTime = holder->integer("replayTime");
         tile.holderColor = parseColor(holder->str("color"));
+        tile.holderTeam = holder->integer("team");
+        tile.ourTeam = holder->flag("myTeam");
       }
       // Asked for here, on the worker, so the render thread only ever picks up
       // pixels that are already decoded and waiting.
@@ -372,7 +391,26 @@ void loadBoard(const std::string& id) {
       row.lines = r.integer("lines");
       row.points = r.integer("points");
       row.mine = r.flag("mine");
+      row.team = r.integer("team");
       view.ladder.push_back(row);
+    }
+  }
+
+  // The team standing, empty on a board played individually - which is the one
+  // check the panel makes, rather than asking the board how it was configured.
+  if (const Json* rows = data.child("teams"); rows && rows->type == Json::Type::Array) {
+    for (const Json& r : rows->array) {
+      TeamRow row;
+      row.team = r.integer("team");
+      row.name = r.str("name");
+      row.color = parseColor(r.str("color"));
+      row.tiles = r.integer("tiles");
+      row.lines = r.integer("lines");
+      row.points = r.integer("points");
+      row.players = r.integer("players");
+      row.full = r.flag("full");
+      row.mine = r.flag("mine");
+      view.teams.push_back(row);
     }
   }
 
@@ -394,9 +432,11 @@ void loadBoard(const std::string& id) {
         }
         if (!before) continue;
         const bool taken = now.held && (!before->held || before->holderName != now.holderName);
+        // A teammate taking a tile is your side scoring, not a loss, and saying
+        // it the same way as an opponent taking one would read as bad news.
         if (taken && !now.mine) {
-          s.toast = "Tile " + std::to_string(now.idx + 1) + " taken by " +
-                    (now.holderName.empty() ? std::string("somebody") : now.holderName);
+          const std::string who = now.holderName.empty() ? std::string("somebody") : now.holderName;
+          s.toast = "Tile " + std::to_string(now.idx + 1) + (now.ourTeam ? " taken for us by " : " taken by ") + who;
           s.toastUntil = nowSeconds() + 12.0;
           log::line("%s", s.toast.c_str());
         }
@@ -407,11 +447,22 @@ void loadBoard(const std::string& id) {
   note("board up to date");
 }
 
-void check(const std::string& board, int idx) {
+/**
+ * Take a tile.
+ *
+ * `timeMs` is only ever sent on a self-reported board, and the site is what
+ * enforces that - it ignores the field everywhere else. A time measured by the
+ * game is self-reported however it was measured, exactly like a map claim, so
+ * this is not a shortcut around the strict rule: it is the same arrangement
+ * that board already advertises, one keypress instead of an alt-tab.
+ */
+void check(const std::string& board, int idx, int timeMs = 0) {
   if (config().token.empty()) return;
 
   std::string body = "{\"action\":\"check\",\"board\":" + Json::quote(board) +
-                     ",\"idx\":" + std::to_string(idx) + "}";
+                     ",\"idx\":" + std::to_string(idx);
+  if (timeMs > 0) body += ",\"time\":" + std::to_string(timeMs);
+  body += "}";
   Response res = post(url("/api/game/bingo"), body, config().token);
   if (!res.ok) {
     toast("Could not reach the site.");
@@ -426,12 +477,24 @@ void check(const std::string& board, int idx) {
 
   if (data.flag("captured")) {
     int ms = data.integer("replayTime");
-    toast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");
+    if (ms > 0) {
+      toast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");
+    } else {
+      // A self-reported tile taken with no time at all: there is nothing to
+      // print, and "captured - 0.0s" would read as a bug.
+      toast("Tile taken.");
+    }
   } else {
     std::string reason = data.str("reason");
     if (reason == "no-replay") toast("No replay on TMX for that map yet - upload it first.");
-    else if (reason == "too-slow") toast("Uploaded, but slower than the tile's holder.");
-    else if (reason == "before-board") toast("That replay was driven before the board started.");
+    else if (reason == "too-slow") {
+      // On a self-reported board the same refusal means something else: either
+      // somebody holds it and you sent no time, or yours was not faster.
+      toast(timeMs > 0 ? "Not faster than the tile's holder." : "Somebody holds that tile - give a time to take it.");
+    }
+    else if (reason == "before-board") {
+      toast("That replay predates the board. TMX will not take a slower one, so this board needs its setting changed on the website.");
+    }
     else toast("Nothing captured.");
   }
 
@@ -468,6 +531,10 @@ void loop() {
   std::string lastUid;
   double lastReport = 0;
   double lastOpenCheck = 0;
+  // The last finish already sent, as uid + time: the results screen holds the
+  // same Race.Time for as long as it is up, so without this one finish would
+  // be submitted four times a second.
+  std::string lastAutoSubmit;
   double lastBoardRefresh = 0;
   double lastBoardsRefresh = 0;
   double menuSince = 0;
@@ -534,7 +601,7 @@ void loop() {
           }
           break;
         case Command::Kind::Check:
-          check(command.text, command.number);
+          check(command.text, command.number, command.time);
           break;
         case Command::Kind::ReportNow:
           lastUid.clear();  // force the next pass to report
@@ -624,6 +691,35 @@ void loop() {
       if (view.map.open == 1 && !view.map.site.empty()) {
         lastOpenCheck = now;
         checkStillOpen(view.map.site, view.map.trackId);
+      }
+    }
+
+    // ------------------------------------------------- finishing a tile
+    //
+    // Off unless the player asked for it, and then only on a board that checks
+    // nothing against TMX anyway. Everywhere else a tile is taken by a replay
+    // the site goes and reads, and a time measured here is not that - it is
+    // self-reported however it was measured, exactly like a map claim.
+    //
+    // Guarded three ways beyond the setting: the run has to have finished on a
+    // map that is actually a tile of a board the player is in, it has to be a
+    // time that would take the tile (the site refuses a slower one anyway, so
+    // sending it would only generate a refusal), and each finish counts once -
+    // `Race.Time` keeps reading the same value for as long as the results
+    // screen is up, which would otherwise be a request every 250 ms.
+    if (linked && config().autoSubmitSelfReported && snap.state == game::RaceState::Finished &&
+        snap.raceTimeMs > 0) {
+      const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
+      if (finishKey != lastAutoSubmit) {
+        State view = shared().read();
+        for (const BoardHit& hit : view.hits) {
+          if (!hit.selfReported) continue;
+          const bool wouldTake = !hit.held || hit.holderTime <= 0 || snap.raceTimeMs < hit.holderTime;
+          if (!wouldTake) continue;
+          lastAutoSubmit = finishKey;
+          check(hit.boardId, hit.idx, snap.raceTimeMs);
+          break;  // one tile per finish; the same map is rarely on two boards
+        }
       }
     }
 

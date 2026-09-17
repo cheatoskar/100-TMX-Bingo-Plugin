@@ -46,6 +46,19 @@ struct Config {
   // The board the panel is showing, remembered across sessions.
   std::string board;
 
+  /**
+   * Put a finish straight onto a self-reported board without asking.
+   *
+   * Off by default, and deliberately: an overlay that silently posts times on
+   * somebody's behalf is how a friendly board turns sour, and the whole premise
+   * of a self-reported board is a group that trusts each other. With it off the
+   * mod offers a button and the player presses it.
+   *
+   * It can only ever apply to a board whose setting is "no check" - everywhere
+   * else a tile is taken by a replay on TMX and the site goes and looks.
+   */
+  bool autoSubmitSelfReported = false;
+
   // VK_F9 by default: not bound by the game, and out of the way of the keys
   // people actually drive with.
   int toggleKey = 0x78;  // VK_F9

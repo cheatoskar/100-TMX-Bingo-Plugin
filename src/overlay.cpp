@@ -116,11 +116,12 @@ bool interactive() {
   return g_uiOpen || !g_inRace;
 }
 
-void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0) {
+void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0, int time = 0) {
   Command command;
   command.kind = kind;
   command.text = text;
   command.number = number;
+  command.time = time;
   shared().push(command);
 }
 
@@ -210,16 +211,53 @@ void drawMapBlock(const State& state) {
     ImGui::TextColored(kMine, "Tile %d on %s", hit.idx + 1,
                        hit.title.empty() ? hit.boardId.c_str() : hit.title.c_str());
     if (hit.held) {
-      ImGui::TextColored(kMuted, "%s holds it at %s", hit.mine ? "you" : hit.holderName.c_str(),
-                         timeString(hit.holderTime).c_str());
+      // On a team board the side is the thing worth naming: "Red holds it" is
+      // what decides whether the next twenty minutes are worth spending.
+      const ImVec4 colour = hit.holderColor ? ImGui::ColorConvertU32ToFloat4(hit.holderColor) : kMuted;
+      if (hit.teams > 0 && !hit.holderTeamName.empty()) {
+        ImGui::TextColored(colour, "%s holds it at %s%s",
+                           hit.holderTeamName.c_str(), timeString(hit.holderTime).c_str(),
+                           hit.holderTeam == hit.myTeam ? " (your side)" : "");
+        if (!hit.mine && !hit.holderName.empty()) ImGui::TextColored(kMuted, "driven by %s", hit.holderName.c_str());
+      } else {
+        ImGui::TextColored(kMuted, "%s holds it at %s", hit.mine ? "you" : hit.holderName.c_str(),
+                           timeString(hit.holderTime).c_str());
+      }
     } else {
       ImGui::TextColored(kMuted, "nobody holds it yet");
     }
-    if (state.raceState == 2 && state.raceTimeMs > 0) {
+
+    const bool finished = state.raceState == 2 && state.raceTimeMs > 0;
+    // Would this run actually take the tile? The site refuses a slower one
+    // anyway, so offering it would be a button that exists to say no. An
+    // untimed hold reads as 0, which any real time beats.
+    const bool wouldTake = finished && (!hit.held || hit.holderTime <= 0 || state.raceTimeMs < hit.holderTime);
+
+    if (finished) {
       ImGui::TextColored(kOpen, "Your run: %s", timeString(state.raceTimeMs).c_str());
-      ImGui::TextWrapped("Upload the replay to TMX, then press \"I uploaded it\".");
+      if (!hit.selfReported) {
+        ImGui::TextWrapped("Upload the replay to TMX, then press \"I uploaded it\".");
+      }
     }
-    if (interactive() && ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
+
+    if (!interactive()) continue;
+
+    if (hit.selfReported) {
+      // This board checks nothing against TMX and says so on its own face, so
+      // the time the game measured can go straight on it. Nowhere else - a
+      // number from here is self-reported however it was measured.
+      if (wouldTake) {
+        const std::string label = "Take the tile with " + timeString(state.raceTimeMs) + "##" + hit.boardId;
+        if (ImGui::Button(label.c_str())) {
+          pushCommand(Command::Kind::Check, hit.boardId, hit.idx, state.raceTimeMs);
+        }
+      } else {
+        if (finished && hit.held) ImGui::TextColored(kMuted, "Not faster than the tile.");
+        if (ImGui::Button(("Take this tile##" + hit.boardId).c_str())) {
+          pushCommand(Command::Kind::Check, hit.boardId, hit.idx, 0);
+        }
+      }
+    } else if (ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
       pushCommand(Command::Kind::Check, hit.boardId, hit.idx);
     }
   }
@@ -233,6 +271,22 @@ void drawBoard(const State& state) {
   }
 
   ImGui::TextUnformatted(board.title.empty() ? board.id.c_str() : board.title.c_str());
+
+  // Two things about a board change what the buttons below mean, so they are
+  // said once at the top rather than implied by a button behaving oddly.
+  if (board.myTeam > 0) {
+    for (const TeamRow& team : board.teams) {
+      if (team.team != board.myTeam) continue;
+      ImGui::TextColored(team.color ? ImGui::ColorConvertU32ToFloat4(team.color) : kMine,
+                         "You play for %s", team.name.c_str());
+      break;
+    }
+  } else if (board.teamCount > 0) {
+    ImGui::TextColored(kWarn, "Teams - join a side on the website");
+  }
+  if (board.selfReported()) {
+    ImGui::TextColored(kMuted, "Self-reported: nothing is checked against TMX");
+  }
 
   const int size = board.size > 0 ? board.size : 5;
 
@@ -266,6 +320,7 @@ void drawBoard(const State& state) {
     const bool here = !state.map.uid.empty() && tile.trackId == state.map.trackId && tile.site == state.map.site;
     if (here) ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
 
+
     void* image = showImages ? textures::get(g_device, tile.trackId) : nullptr;
     bool pressed = false;
     if (image) {
@@ -288,8 +343,13 @@ void drawBoard(const State& state) {
         ImGui::Image(reinterpret_cast<ImTextureID>(image), ImVec2(240, 135));
       }
       if (tile.held) {
-        ImGui::TextColored(kMuted, "%s - %s", tile.mine ? "you" : tile.holderName.c_str(),
-                           timeString(tile.holderTime).c_str());
+        // "you", "your side" and "them" are three different answers, and on a
+        // team board only the middle one tells you not to bother.
+        const char* who = tile.mine ? "you" : tile.ourTeam ? "your team" : tile.holderName.c_str();
+        ImGui::TextColored(kMuted, "%s - %s", who, timeString(tile.holderTime).c_str());
+        if (tile.ourTeam && !tile.mine && !tile.holderName.empty()) {
+          ImGui::TextColored(kMuted, "(%s)", tile.holderName.c_str());
+        }
       } else {
         ImGui::TextColored(kMuted, "unclaimed%s", tile.hasRecord ? ", map already has a replay" : "");
       }
@@ -300,7 +360,22 @@ void drawBoard(const State& state) {
   // Who is ahead, in the board's own colours. Three rows: the panel is 260px
   // wide and the question it answers is "am I winning", not "what is the exact
   // order of eight people".
-  if (!board.ladder.empty()) {
+  // On a team board the sides are the standing and the players are a roster,
+  // so showing the player ladder there would answer a question nobody asked.
+  if (!board.teams.empty()) {
+    ImGui::Separator();
+    for (const TeamRow& team : board.teams) {
+      // An empty side is real - somebody can still join it - but it is not
+      // worth a row on a 260px panel.
+      if (team.players == 0 && team.tiles == 0) continue;
+      ImGui::TextColored(team.color ? ImGui::ColorConvertU32ToFloat4(team.color) : kMuted, "%s%s",
+                         team.name.c_str(), team.mine ? " (you)" : "");
+      ImGui::SameLine();
+      ImGui::TextColored(kMuted, "%d pt%s - %d tile%s%s", team.points, team.points == 1 ? "" : "s",
+                         team.tiles, team.tiles == 1 ? "" : "s",
+                         team.lines > 0 ? (team.lines == 1 ? " + a line" : " + lines") : "");
+    }
+  } else if (!board.ladder.empty()) {
     ImGui::Separator();
     int shown = 0;
     for (const LadderRow& row : board.ladder) {
@@ -326,16 +401,41 @@ void drawBoard(const State& state) {
       ImGui::TextColored(kMuted, "%s #%d%s", tile.exchange.c_str(), tile.trackId,
                          tile.hasRecord ? " - already has a replay" : " - never finished");
       if (tile.held) {
-        ImGui::TextColored(tile.mine ? kMine : kTaken, "%s holds it at %s",
-                           tile.mine ? "you" : tile.holderName.c_str(), timeString(tile.holderTime).c_str());
+        // A tile your own side holds is not a target: taking it moves it to you
+        // and wins the team nothing, which is worth saying before somebody
+        // spends an evening on it.
+        const ImVec4 tone = tile.mine ? kMine : tile.ourTeam ? kMine : kTaken;
+        ImGui::TextColored(tone, "%s holds it at %s",
+                           tile.mine ? "you" : tile.ourTeam ? "your team" : tile.holderName.c_str(),
+                           timeString(tile.holderTime).c_str());
+        if (tile.ourTeam && !tile.mine) {
+          ImGui::TextColored(kMuted, "Beating it wins your side nothing.");
+        }
       }
       if (interactive()) {
         if (ImGui::Button("Play this map")) pushCommand(Command::Kind::Play, tile.playUrl);
         ImGui::SameLine();
-        if (ImGui::Button("I uploaded it")) pushCommand(Command::Kind::Check, board.id, tile.idx);
-        if (!tile.uploadUrl.empty()) {
-          ImGui::SameLine();
-          if (ImGui::Button("Upload")) pushCommand(Command::Kind::OpenUrl, tile.uploadUrl);
+        if (board.selfReported()) {
+          // Nothing to upload and nothing to check: the board takes a time, and
+          // the only one we have is the run just finished on this very map.
+          const bool onIt = !state.map.uid.empty() && tile.trackId == state.map.trackId &&
+                            tile.site == state.map.site;
+          const bool haveRun = onIt && state.raceState == 2 && state.raceTimeMs > 0;
+          const bool wouldTake = haveRun && (!tile.held || tile.holderTime <= 0 || state.raceTimeMs < tile.holderTime);
+          if (wouldTake) {
+            const std::string label = "Take with " + timeString(state.raceTimeMs);
+            if (ImGui::Button(label.c_str())) {
+              pushCommand(Command::Kind::Check, board.id, tile.idx, state.raceTimeMs);
+            }
+          } else if (ImGui::Button("Take this tile")) {
+            pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
+          }
+        } else {
+          if (ImGui::Button("I uploaded it")) pushCommand(Command::Kind::Check, board.id, tile.idx);
+          if (!tile.uploadUrl.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Upload")) pushCommand(Command::Kind::OpenUrl, tile.uploadUrl);
+          }
         }
       }
       break;
@@ -428,8 +528,14 @@ void drawSettings(const State& state) {
       } else {
         for (const BoardSummary& board : state.boards) {
           const bool selected = board.id == config().board;
-          std::string label = (board.title.empty() ? board.id : board.title) + "  (" + board.kind + ", ends " +
-                              board.endsAt.substr(0, 10) + ")";
+          // Teams are worth knowing before the board is opened - and "no side
+          // yet" is the one state that needs the website to fix.
+          std::string teams;
+          if (board.teams > 0) {
+            teams = board.myTeam > 0 ? ", teams" : ", teams - pick a side on the website";
+          }
+          std::string label = (board.title.empty() ? board.id : board.title) + "  (" + board.kind + teams +
+                              ", ends " + board.endsAt.substr(0, 10) + ")";
           if (ImGui::RadioButton(label.c_str(), selected) && !selected) {
             g_selectedTile = -1;
             pushCommand(Command::Kind::SelectBoard, board.id);
@@ -484,6 +590,18 @@ void drawSettings(const State& state) {
     }
 
     if (ImGui::BeginTabItem("Settings")) {
+      bool autoSubmit = config().autoSubmitSelfReported;
+      if (ImGui::Checkbox("Put my finish straight onto self-reported boards", &autoSubmit)) {
+        config().autoSubmitSelfReported = autoSubmit;
+        config().save();
+      }
+      ImGui::TextWrapped(
+          "Only on a board set to \"no check\" on the website, and only when the run would actually take the tile. "
+          "Every other board takes a tile by a replay on TMX, which the site goes and reads - nothing here can "
+          "change that. Off by default because an overlay that posts times for you is not what a board between "
+          "friends wants.");
+      ImGui::Separator();
+
       bool share = config().shareWhatIAmPlaying;
       if (ImGui::Checkbox("Share what I am playing", &share)) {
         config().shareWhatIAmPlaying = share;

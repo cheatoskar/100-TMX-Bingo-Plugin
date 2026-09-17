@@ -44,6 +44,10 @@ struct BoardSummary {
   std::string title;
   int size = 5;
   std::string endsAt;
+  /** Sides on this board, or 0 for everybody for themselves. */
+  int teams = 0;
+  /** Which side the player is on, or 0. */
+  int myTeam = 0;
 };
 
 struct Tile {
@@ -62,8 +66,35 @@ struct Tile {
   int holderTime = 0;   // milliseconds; the time to beat
   /** The holder's colour on this board - the same one the website paints. */
   unsigned int holderColor = 0;
+  /**
+   * The side that holds it, or 0 without teams.
+   *
+   * `mine` stays personal - "you hold this" - while `ourTeam` is "my side holds
+   * this". Three states, not two: a tile my team already owns is not worth an
+   * evening, and without this the grid cannot say so.
+   */
+  int holderTeam = 0;
+  bool ourTeam = false;
   /** TMX's screenshot of the map. */
   std::string imageUrl;
+};
+
+/**
+ * A side of a team board.
+ *
+ * The standing that matters there: tiles and lines are scored per team, so the
+ * player ladder below it is a roster rather than a ranking.
+ */
+struct TeamRow {
+  int team = 0;
+  std::string name;
+  unsigned int color = 0;
+  int tiles = 0;
+  int lines = 0;
+  int points = 0;
+  int players = 0;
+  bool full = false;
+  bool mine = false;
 };
 
 /** A row of the board's standing, as the website ranks it. */
@@ -74,6 +105,8 @@ struct LadderRow {
   int lines = 0;
   int points = 0;
   bool mine = false;
+  /** The side they play for, or 0. */
+  int team = 0;
 };
 
 struct BoardView {
@@ -84,7 +117,25 @@ struct BoardView {
   std::string endsAt;
   std::vector<Tile> tiles;
   std::vector<LadderRow> ladder;
+  /** Empty unless this board is played in sides - the one check that decides. */
+  std::vector<TeamRow> teams;
+  int teamCount = 0;
+  int teamSize = 0;       // 0 = no cap
+  int myTeam = 0;
+  std::string teamAssign; // "choose" | "random"; display only, joining is on the website
+  /**
+   * How a tile is taken here: "board", "any" or "trust".
+   *
+   * Only `trust` changes what this mod may do. There the site takes a time from
+   * us, because the board checks nothing against TMX at all and says so on its
+   * face - it is the same self-reporting the board already advertises, not a
+   * hole in a stricter rule. On the other two the button stays "I uploaded it"
+   * and the site goes and looks.
+   */
+  std::string verify;
   bool loaded = false;
+
+  bool selfReported() const { return verify == "trust"; }
 };
 
 // The current map's place on a board the player is in.
@@ -102,6 +153,19 @@ struct BoardHit {
   bool mine = false;
   std::string holderName;
   int holderTime = 0;
+  /** Teams on that board, and which side is ours. 0 when it has none. */
+  int teams = 0;
+  int myTeam = 0;
+  /** The side holding it, and what it is called - so a line can name it. */
+  int holderTeam = 0;
+  std::string holderTeamName;
+  unsigned int holderColor = 0;
+  /**
+   * That board takes a self-reported time, so a finish here can go straight on
+   * it. Carried per hit because the player may be in several boards at once and
+   * only some of them work that way.
+   */
+  bool selfReported = false;
 };
 
 struct State {
@@ -149,6 +213,14 @@ struct Command {
   Kind kind = Kind::RefreshBoards;
   std::string text;   // board id, or a play URL
   int number = 0;     // tile index
+  /**
+   * A time in milliseconds, for a Check on a self-reported board.
+   *
+   * Zero means "no time" - which takes an unclaimed tile and nothing else,
+   * because there is then nothing for a challenger to beat. The site enforces
+   * that; this only carries it.
+   */
+  int time = 0;
 };
 
 class Shared {
