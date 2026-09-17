@@ -112,12 +112,15 @@ add_executable(tmx_installer WIN32
 )
 add_dependencies(tmx_installer tmx_mod)
 
-target_include_directories(tmx_installer PRIVATE installer)
+# Through a generated header, not a -D string: `TMX_VERSION=L"0.6.4"` loses its
+# quotes between CMake, MSBuild and the compiler, and the installer went out
+# registering a version folder called "0".
+configure_file(installer/version.h.in "${CMAKE_CURRENT_BINARY_DIR}/tmx_version.h" @ONLY)
+target_include_directories(tmx_installer PRIVATE installer "${CMAKE_CURRENT_BINARY_DIR}")
 set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
              PROPERTY INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/installer)
 
-target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
-  TMX_VERSION=L"${TMX_VERSION}")
+target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_compile_options(tmx_installer PRIVATE /W4 /EHsc)
 
 set_target_properties(tmx_installer PROPERTIES
