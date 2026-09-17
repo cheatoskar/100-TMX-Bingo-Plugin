@@ -106,6 +106,100 @@ Three things before a board means anything, and each exists for a reason:
    saves the alt-tabbing. If you do want it, install it as above and connect it
    at [100tmx.com/link](https://100tmx.com/link).
 
+### How a session fits together
+
+One board on the website, and everybody around it. The board is the shared
+thing; the overlay is one per person, linked to their own machine.
+
+```mermaid
+flowchart TB
+    subgraph site["100tmx.com"]
+        board["The board<br/>25 maps - one grid everybody sees"]
+    end
+
+    subgraph anna["Anna - made the board"]
+        direction TB
+        annaB["Browser<br/>signed in with Discord"]
+        annaG["TMNF + overlay<br/>her machine, her own code"]
+    end
+
+    subgraph bo["Bo"]
+        direction TB
+        boB["Browser<br/>signed in with Discord"]
+        boG["TMNF + overlay<br/>his machine, his own code"]
+    end
+
+    subgraph cy["Cy - no overlay, browser only"]
+        direction TB
+        cyB["Browser<br/>signed in with Discord"]
+    end
+
+    annaB -- "built it, sent the link" --> board
+    boB -- "opened the link, entered" --> board
+    cyB -- "opened the link, entered" --> board
+
+    annaG -. "device code" .-> annaB
+    boG -. "device code" .-> boB
+
+    board <-- "the grid, live" --> annaG
+    board <-- "the grid, live" --> boG
+```
+
+Three things that trip people up, and all three are in that picture:
+
+- **The board is made once, by one person.** Everybody else opens the link and
+  presses *Enter the board*. Nobody needs to build their own.
+- **Everybody signs in with Discord on the website.** That is what makes a tile
+  yours rather than somebody's. It is not optional, and the overlay cannot do
+  it for you.
+- **The overlay is per machine, not per board.** Cy above is playing the same
+  board from a browser with no mod at all. It only saves the alt-tabbing.
+
+### What links a machine to your account
+
+There is no browser inside TrackMania, so the overlay cannot sign in. It asks
+for a short code instead and you approve it on the website, already signed in —
+which means the machine inherits every TMX account you have already proved,
+with nothing new to link.
+
+```mermaid
+sequenceDiagram
+    participant G as Overlay (in game)
+    participant S as 100tmx.com
+    participant B as Your browser
+
+    G->>S: Connect - give me a code
+    S-->>G: ABCD-2345
+    Note over G: shows the code,<br/>opens /link
+    B->>S: signed in with Discord,<br/>types ABCD-2345
+    S-->>B: approve this machine?
+    B->>S: yes
+    G->>S: is it approved yet?
+    S-->>G: yes - here is your token, once
+    Note over G,S: The token is this machine's.<br/>Revoke it from either end, any time.
+```
+
+### Who talks to TrackMania Exchange
+
+Nobody but the site. The overlay never uploads anything and never reads the
+exchange — which is why a tile cannot be faked by editing a file on your PC.
+
+```mermaid
+flowchart LR
+    you["You<br/>drive the map"] --> replay["Upload the replay<br/>to TMX yourself"]
+    replay --> tmx[("TrackMania<br/>Exchange")]
+    you -- "press: I uploaded it" --> mod["Overlay"]
+    mod -- "check tile 7" --> site["100tmx.com"]
+    site -- "reads /api/replays" --> tmx
+    tmx -- "your replay, its time" --> site
+    site -- "captured, or not" --> mod
+```
+
+The one exception is a board set to **no check** on the website. That kind
+checks nothing against the exchange at all and says so on its own face, so
+there the overlay may put the run you just finished straight onto the tile.
+Everywhere else a replay on TMX is the only thing that takes one.
+
 ### Playing
 
 1. **Get a board.** Enter [this week's](https://100tmx.com/events/bingo), which
