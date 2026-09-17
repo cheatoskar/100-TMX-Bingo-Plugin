@@ -251,10 +251,28 @@ void drawMapBlock(const State& state) {
         if (ImGui::Button(label.c_str())) {
           pushCommand(Command::Kind::Check, hit.boardId, hit.idx, state.raceTimeMs);
         }
+        if (!config().autoSubmitSelfReported) {
+          ImGui::TextColored(kMuted, "Settings: do this automatically");
+        }
       } else {
-        if (finished && hit.held) ImGui::TextColored(kMuted, "Not faster than the tile.");
-        if (ImGui::Button(("Take this tile##" + hit.boardId).c_str())) {
+        // The button that takes a tile with *no time on it* must say so. It
+        // used to read "Take this tile", which is what the normal action would
+        // look like - so somebody who finished a map, came back to the panel a
+        // moment too late and pressed it got a tile held at no time and no clue
+        // why. A mark that moves silently is a bug; so is one that silently
+        // moves empty.
+        if (finished && hit.held) {
+          ImGui::TextColored(kMuted, "Not faster than the tile.");
+        } else if (!finished) {
+          ImGui::TextColored(kMuted, "No finish read yet - drive it, then take it from here.");
+        }
+        if (ImGui::Button(("Take without a time##" + hit.boardId).c_str())) {
           pushCommand(Command::Kind::Check, hit.boardId, hit.idx, 0);
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip(
+              "Marks the tile with no time on it. Nobody can take it off you, and nothing is recorded about how "
+              "fast you were. Finish the map with the panel open to put your time on instead.");
         }
       }
     } else if (ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
@@ -427,8 +445,17 @@ void drawBoard(const State& state) {
             if (ImGui::Button(label.c_str())) {
               pushCommand(Command::Kind::Check, board.id, tile.idx, state.raceTimeMs);
             }
-          } else if (ImGui::Button("Take this tile")) {
-            pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
+          } else {
+            // No finish in hand, so this marks the tile empty - and says so
+            // rather than looking like the ordinary action. See the same note
+            // in the map panel above.
+            if (ImGui::Button("Take without a time")) {
+              pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
+            }
+            if (ImGui::IsItemHovered()) {
+              ImGui::SetTooltip(
+                  "Marks it with no time on it. Finish the map with the panel open to put your time on instead.");
+            }
           }
         } else {
           if (ImGui::Button("I uploaded it")) pushCommand(Command::Kind::Check, board.id, tile.idx);
