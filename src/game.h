@@ -57,6 +57,17 @@ struct Snapshot {
   std::string mapName;
   RaceState state = RaceState::Unknown;
   int raceTimeMs = -1;        // -1 when it could not be read
+  /**
+   * How far the walk to the local player got, when it did not get there.
+   *
+   * "Cannot read the race state" is true but useless on its own - the chain is
+   * five dereferences deep and any of them can be the wrong offset for a build.
+   * Naming the step that failed turns a bug report into an address.
+   *
+   * 0 fine · 1 no race · 2 no player info · 3 no player · 4 no sub-object ·
+   * 5 the state field itself would not read
+   */
+  int raceStep = 0;
   int checkpoint = -1;        // passed so far this run
   int checkpoints = -1;       // on the map
 };

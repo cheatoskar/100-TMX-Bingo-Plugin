@@ -26,7 +26,13 @@
 namespace {
 
 const wchar_t* kTitle = L"100% TMX + Bingo";
-const wchar_t* kVersion = L"0.5.0";
+// Set from CMake, which takes it from the project version or the CI tag. Never
+// hardcode it here again: the ModLoader's list shows this string, and a build
+// that lies about its own version is a support question nobody can answer.
+#ifndef TMX_VERSION
+#define TMX_VERSION L"0.0.0-dev"
+#endif
+const wchar_t* kVersion = TMX_VERSION;
 
 // The ModLoader's list shows the product *folder*, not the name inside its
 // description.yaml - that one only appears in the details panel. So the folder
@@ -207,6 +213,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   for (const wchar_t* old : kOldProducts) {
     const std::wstring previous = products + L"\\" + old;
     if (GetFileAttributesW(previous.c_str()) != INVALID_FILE_ATTRIBUTES) removeVersionDir(previous);
+  }
+
+  // And every *other* version of this product. The ModLoader keeps one folder
+  // per version and lists them all, so without this an update leaves the old
+  // one sitting beside the new - two entries for one mod, and no way for
+  // somebody to tell which of them is running.
+  {
+    WIN32_FIND_DATAW find{};
+    HANDLE handle = FindFirstFileW((product + L"\\*").c_str(), &find);
+    if (handle != INVALID_HANDLE_VALUE) {
+      do {
+        const std::wstring name = find.cFileName;
+        if (name == L"." || name == L".." || name == kVersion) continue;
+        if (find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+          removeVersionDir(product + L"\\" + name);
+        }
+      } while (FindNextFileW(handle, &find));
+      FindClose(handle);
+    }
   }
   renameInProfiles(loader, kProduct, L"");
 

@@ -127,9 +127,15 @@ void startLink() {
         // Asked once, here, rather than left as a setting nobody finds: the
         // player just deliberately connected, which is the moment the question
         // makes sense. Still a question - connecting is not consent to publish.
-        s.askSharing = !config().shareWhatIAmPlaying;
+        // Shown once after linking whichever way the switch is set. It used
+        // to fire only when sharing was off, which made sense while off was
+        // the default - now that it is on, never mentioning it would mean the
+        // one thing that sends anything off the machine turning itself on
+        // quietly. So it became a notice with an off switch rather than a
+        // question with an on switch.
+        s.askSharing = true;
       });
-      toast("Connected. Say whether to share what you are playing.");
+      toast("Connected. Check what is being shared.");
       return;
     }
     if (status == "expired") break;
@@ -640,6 +646,7 @@ void loop() {
       s.mapName = snap.mapName;
       s.raceState = static_cast<int>(snap.state);
       s.raceTimeMs = snap.raceTimeMs;
+      s.raceStep = snap.raceStep;
       if (s.toastUntil > 0 && nowSeconds() > s.toastUntil) {
         s.toast.clear();
         s.toastUntil = 0;

@@ -115,6 +115,26 @@ void setup(IDirect3DDevice9* device) {
 // Not the Windows cursor either: TrackMania draws its own in the menus and
 // keeps the system one hidden, so CURSOR_SHOWING is false where a pointer is
 // plainly on screen.
+/**
+ * Which dereference the walk to the local player died on.
+ *
+ * Reported in plain words because the person reading it is the person who can
+ * do something about it: a build where it stops at the race pointer needs a
+ * different `race` offset, one that stops at the sub-object needs a different
+ * `player_sub`, and both go in `[offsets]` in config.ini without waiting for a
+ * release.
+ */
+const char* raceStepName(int step) {
+  switch (step) {
+    case 1: return "no race object";
+    case 2: return "no player info";
+    case 3: return "no player";
+    case 4: return "no player sub-object";
+    case 5: return "state field unreadable";
+    default: return "unknown";
+  }
+}
+
 bool interactive() {
   switch (config().panelInput) {
     case 1: return g_uiOpen;
@@ -225,7 +245,7 @@ void drawMapBlock(const State& state) {
   // auto-submit, "you beat the holder" - is silently impossible, so it is said
   // once rather than left to look like the board ignoring them.
   if (state.inRace && state.raceState < 0 && !state.hits.empty()) {
-    ImGui::TextColored(kWarn, "Cannot read this build's race state");
+    ImGui::TextColored(kWarn, "Cannot read this build's race state (%s)", raceStepName(state.raceStep));
     ImGui::TextWrapped("Times cannot be filled in for you. Take tiles from the website, or report the build below.");
   }
 
@@ -284,11 +304,7 @@ void drawMapBlock(const State& state) {
         // moment too late and pressed it got a tile held at no time and no clue
         // why. A mark that moves silently is a bug; so is one that silently
         // moves empty.
-        if (finished && hit.held) {
-          ImGui::TextColored(kMuted, "Not faster than the tile.");
-        } else if (!finished) {
-          ImGui::TextColored(kMuted, "No finish read yet - drive it, then take it from here.");
-        }
+        if (finished && hit.held) ImGui::TextColored(kMuted, "Not faster than the tile.");
         if (ImGui::Button(("Take without a time##" + hit.boardId).c_str())) {
           pushCommand(Command::Kind::Check, hit.boardId, hit.idx, 0);
         }
@@ -392,7 +408,7 @@ void drawBoard(const State& state) {
           ImGui::TextColored(kMuted, "(%s)", tile.holderName.c_str());
         }
       } else {
-        ImGui::TextColored(kMuted, "unclaimed%s", tile.hasRecord ? ", map already has a replay" : "");
+        ImGui::TextColored(kMuted, "unclaimed");
       }
       ImGui::EndTooltip();
     }
@@ -439,8 +455,7 @@ void drawBoard(const State& state) {
         ImGui::Image(reinterpret_cast<ImTextureID>(image), ImVec2(width, width * 9.0f / 16.0f));
       }
       ImGui::TextUnformatted(tile.name.empty() ? "(unnamed map)" : tile.name.c_str());
-      ImGui::TextColored(kMuted, "%s #%d%s", tile.exchange.c_str(), tile.trackId,
-                         tile.hasRecord ? " - already has a replay" : " - never finished");
+      ImGui::TextColored(kMuted, "%s #%d", tile.exchange.c_str(), tile.trackId);
       if (tile.held) {
         // A tile your own side holds is not a target: taking it moves it to you
         // and wins the team nothing, which is worth saying before somebody
@@ -610,17 +625,20 @@ void drawSettings(const State& state) {
       } else if (state.linked && state.askSharing) {
         ImGui::TextColored(kOpen, "This machine is connected.");
         ImGui::Separator();
+        // A notice, not a question - sharing is on by default now. Still shown
+        // once and in plain words, because a switch that sends something off
+        // the machine should never be discovered rather than told.
         ImGui::TextWrapped(
-            "Show the map you are on as being played, on the remaining list? Only the map's id is sent, and you can "
-            "turn it off at any time.");
-        if (ImGui::Button("Yes, share what I am playing")) {
-          config().shareWhatIAmPlaying = true;
-          config().save();
+            "The map you are on is shown as being played, on the remaining list. Only the map's id is sent, and "
+            "nothing is sent while you are in the menus.");
+        if (ImGui::Button("Fine by me")) {
           shared().write([](State& s) { s.askSharing = false; });
           pushCommand(Command::Kind::ReportNow);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Not now")) {
+        if (ImGui::Button("Do not share it")) {
+          config().shareWhatIAmPlaying = false;
+          config().save();
           shared().write([](State& s) { s.askSharing = false; });
         }
       } else if (state.linked) {
@@ -646,10 +664,9 @@ void drawSettings(const State& state) {
         config().save();
       }
       ImGui::TextWrapped(
-          "Only on a board set to \"no check\" on the website, and only when the run would actually take the tile. "
-          "Every other board takes a tile by a replay on TMX, which the site goes and reads - nothing here can "
-          "change that. Off by default because an overlay that posts times for you is not what a board between "
-          "friends wants.");
+          "Only on a board set to \"no check\" or \"plugin and replay only\", and only when the run would actually "
+          "take the tile. Every other board takes a tile by a replay on TMX, which the site goes and reads - nothing "
+          "here can change that.");
       ImGui::Separator();
 
       bool share = config().shareWhatIAmPlaying;
@@ -718,6 +735,19 @@ void drawSettings(const State& state) {
       ImGui::Text("Offsets: %s", state.attached ? state.profile.c_str() : "not recognised");
       ImGui::Text("Variant: %s", state.variant.empty() ? "unknown" : state.variant.c_str());
       ImGui::Text("Map UID: %s", state.uid.empty() ? "-" : state.uid.c_str());
+      // The one line worth copying into a bug report. A build whose UID reads
+      // but whose race state does not is a build where the walk to the local
+      // player takes a wrong turn, and this says which turn.
+      if (state.raceState >= 0) {
+        ImGui::Text("Race state: %d  time %d ms", state.raceState, state.raceTimeMs);
+      } else if (state.inRace) {
+        ImGui::TextColored(kWarn, "Race state: unreadable - stops at %s", raceStepName(state.raceStep));
+        ImGui::TextWrapped(
+            "The map itself reads fine, so the build is close but not exact. Offsets can be corrected in "
+            "config.ini under [offsets] without waiting for a release.");
+      } else {
+        ImGui::TextColored(kMuted, "Race state: no map loaded");
+      }
       ImGui::Separator();
       ImGui::Text("Last: %s", state.lastCall.empty() ? "-" : state.lastCall.c_str());
       if (!state.lastError.empty()) ImGui::TextColored(kWarn, "Error: %s", state.lastError.c_str());

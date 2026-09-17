@@ -191,6 +191,8 @@ struct State {
   std::string mapName;
   int raceState = -1;   // game::RaceState
   int raceTimeMs = -1;
+  /** Which dereference the walk to the player died on. See game::Snapshot. */
+  int raceStep = 0;
 
   // ---------------------------------------------------------- the account
   bool linked = false;

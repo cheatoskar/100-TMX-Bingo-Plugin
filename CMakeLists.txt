@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
-project(tmx_mod LANGUAGES CXX)
+
+# The version, in one place.
+#
+# It is the folder the ModLoader installs into and the version it lists, so a
+# stale value here is a mod that reports itself as something it is not - which
+# is exactly what happened: this sat at 0.5.0 through four releases because it
+# was a second place to remember. CI overrides it from the tag
+# (-DTMX_VERSION=0.6.4), so a release can only ever announce the tag it was
+# built from; this default is what a local build calls itself.
+project(tmx_mod VERSION 0.6.4 LANGUAGES CXX)
+set(TMX_VERSION "${PROJECT_VERSION}" CACHE STRING "Version the installer registers with the ModLoader")
 
 # TrackMania Forever is 32-bit. There is no 64-bit build to make, and a 64-bit
 # DLL cannot be loaded into the game at all - configure with `-A Win32`.
@@ -106,7 +116,8 @@ target_include_directories(tmx_installer PRIVATE installer)
 set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
              PROPERTY INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/installer)
 
-target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
+  TMX_VERSION=L"${TMX_VERSION}")
 target_compile_options(tmx_installer PRIVATE /W4 /EHsc)
 
 set_target_properties(tmx_installer PROPERTIES

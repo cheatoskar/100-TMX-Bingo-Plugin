@@ -256,19 +256,35 @@ Snapshot read() {
   snap.mapName = readName(o, challenge);
 
   // Everything below is a bonus. A failed step costs the finish prompt, not the
-  // map report, so each one simply stops.
+  // map report, so each one simply stops - but it records *which* step, because
+  // "the race state cannot be read" is not something anybody can act on and
+  // "it stops at the race pointer" is.
   uintptr_t race = deref(app + o.race);
-  if (!plausible(race)) return snap;
+  if (!plausible(race)) {
+    snap.raceStep = 1;
+    return snap;
+  }
   uintptr_t info = deref(race + o.racePlayerInfo);
-  if (!plausible(info)) return snap;
+  if (!plausible(info)) {
+    snap.raceStep = 2;
+    return snap;
+  }
   uintptr_t player = deref(info + o.playerInfoPlayer);
-  if (!plausible(player)) return snap;
+  if (!plausible(player)) {
+    snap.raceStep = 3;
+    return snap;
+  }
   uintptr_t sub = deref(player + o.playerSub);
-  if (!plausible(sub)) return snap;
+  if (!plausible(sub)) {
+    snap.raceStep = 4;
+    return snap;
+  }
 
   int state = 0;
   if (readAt<int>(sub + o.playerState, &state) && state >= 0 && state <= 2) {
     snap.state = static_cast<RaceState>(state);
+  } else {
+    snap.raceStep = 5;
   }
   int time = 0;
   if (readAt<int>(sub + o.playerTime, &time)) snap.raceTimeMs = time;

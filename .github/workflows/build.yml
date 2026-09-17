@@ -23,8 +23,24 @@ jobs:
 
       # TrackMania Forever is a 32-bit process, so the DLL must be Win32. The
       # runner has MSVC and CMake already; nothing else is needed.
+      # The tag is the version, when there is one. Without this the installer
+      # registers whatever CMakeLists last said, which is how it sat at 0.5.0
+      # through four releases - a second place to remember is a place that goes
+      # stale.
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure
-        run: cmake -S . -B build -A Win32
+        run: >
+          cmake -S . -B build -A Win32
+          ${{ steps.v.outputs.value && format('-DTMX_VERSION={0}', steps.v.outputs.value) || '' }}
 
       - name: Build
         run: cmake --build build --config Release

@@ -39,9 +39,9 @@ this one, and what is it worth?
   map and starts it. Pick a tile, drive it, next.
 - **"I uploaded it"**: after you put the replay on TMX, one button asks the site
   to check the tile. The site reads TMX and believes only that.
-- **On a self-reported board**, where the site checks nothing, the overlay can
-  put the run you just finished straight onto the tile — one button, or
-  automatically if you switch that on. Only there; see below.
+- **On a self-reported board**, where the site checks nothing, the overlay puts
+  the run you just finished straight onto the tile. On by default, one switch in
+  Settings to make it a button instead. Only there; see below.
 
 The boards themselves live on the website — drawn weekly, or built privately
 for an evening — and the panel is a window onto the same board everybody else
@@ -417,8 +417,10 @@ The rules it is built to:
 Only the **map UID** — a 22-character token that identifies an upload on the
 exchange and carries nothing of the file — plus your board choices when you
 press something. No file paths, no replays, no folder contents, no telemetry.
-Sharing is off until you switch it on, and the mod sends nothing at all until a
-machine is connected.
+The mod sends nothing at all until a machine is connected. After that, sharing
+which map you are on is **on** — the overlay says so once when you connect, with
+a button to turn it off there and then, and the switch is in Settings for ever
+after. Nothing is sent while you are in the menus.
 
 ---
 
