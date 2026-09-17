@@ -33,6 +33,9 @@ IDirect3DDevice9* g_device = nullptr;
 // Whether a map is loaded, copied out of the last frame's state. It is what
 // decides whether the panel may take the mouse.
 bool g_inRace = false;
+// -1 unknown, 0 before the start, 1 running, 2 finished. Unknown means this
+// TrackMania build's offsets did not resolve - see `interactive()`.
+int g_raceState = -1;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -98,22 +101,33 @@ void setup(IDirect3DDevice9* device) {
 
 // Whether the panel is taking the mouse this frame.
 //
-// The default is automatic: while the game shows a cursor - which is to say in
-// the menus and the pause screen - the panel is clickable, and the moment the
-// cursor goes away for a race it is not. That is what people expect without
-// being told, and it still cannot eat a click mid-run, which is the reason it
-// was click-through in the first place.
+// The default is automatic: the panel is clickable unless a run is actually
+// under way. It still cannot eat a click mid-race, which is the reason it was
+// click-through in the first place - but everywhere else it answers the mouse.
+//
+// It used to test `inRace`, which is not "a run is under way" at all: it means
+// *a map is loaded*, and a map is still loaded on the results screen, at the
+// start line and in the pause menu. So the panel went dead at the exact moment
+// its buttons matter - you cross the line, reach for "take the tile", and
+// nothing responds. Reported by a player who thought the board was broken and
+// could only work it with the settings window open.
+//
+// Not the Windows cursor either: TrackMania draws its own in the menus and
+// keeps the system one hidden, so CURSOR_SHOWING is false where a pointer is
+// plainly on screen.
 bool interactive() {
   switch (config().panelInput) {
     case 1: return g_uiOpen;
     case 2: return true;
     default: break;
   }
-  // Not the Windows cursor: TrackMania draws its own in the menus and keeps the
-  // system one hidden, so CURSOR_SHOWING is false even where a pointer is
-  // plainly on screen. The game's own state is the honest signal - no map
-  // loaded means menus, and menus are where clicking the panel is safe.
-  return g_uiOpen || !g_inRace;
+  if (g_uiOpen) return true;
+  // 0 BeforeStart, 1 Running, 2 Finished. Only the middle one is a run.
+  if (g_raceState == 1) return false;
+  if (g_raceState == 0 || g_raceState == 2) return true;
+  // The state could not be read for this build - fall back to the old, blunter
+  // rule rather than risk taking the mouse mid-race on an unknown one.
+  return !g_inRace;
 }
 
 void pushCommand(Command::Kind kind, const std::string& text = "", int number = 0, int time = 0) {
@@ -204,6 +218,15 @@ void drawMapBlock(const State& state) {
 
   for (const AlsoHere& other : state.alsoHere) {
     ImGui::TextColored(kWarn, "also here: %s", other.name.empty() ? "another player" : other.name.c_str());
+  }
+
+  // A map is loaded but the race state never resolved: the offsets for this
+  // build did not match. Everything that needs a finish - the time on a tile,
+  // auto-submit, "you beat the holder" - is silently impossible, so it is said
+  // once rather than left to look like the board ignoring them.
+  if (state.inRace && state.raceState < 0 && !state.hits.empty()) {
+    ImGui::TextColored(kWarn, "Cannot read this build's race state");
+    ImGui::TextWrapped("Times cannot be filled in for you. Take tiles from the website, or report the build below.");
   }
 
   for (const BoardHit& hit : state.hits) {
@@ -730,6 +753,7 @@ void draw(IDirect3DDevice9* device) {
 
   State state = shared().read();
   g_inRace = state.inRace;
+  g_raceState = state.raceState;
 
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
