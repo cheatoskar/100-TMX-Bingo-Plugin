@@ -10,6 +10,7 @@
 #include "config.h"
 #include "hook.h"
 #include "log.h"
+#include "tmx_version.h"
 #include "overlay.h"
 #include "worker.h"
 
@@ -62,7 +63,11 @@ DWORD WINAPI boot(LPVOID) {
 extern "C" __declspec(dllexport) BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
   switch (reason) {
     case DLL_PROCESS_ATTACH: {
-      tmx::log::line("DllMain: attached (module %p)", (void*)module);
+      // Which build is actually loaded. The ModLoader keeps one folder per
+      // version and picks one of them; with several installed, "the new DLL is
+      // in place" and "the new DLL is running" are different claims, and only
+      // the second one matters. This is how to tell them apart.
+      tmx::log::line("DllMain: attached (module %p) - 100TMX %s", (void*)module, TMX_VERSION_A);
       DisableThreadLibraryCalls(module);
       HANDLE thread = CreateThread(nullptr, 0, boot, nullptr, 0, nullptr);
       if (thread) CloseHandle(thread);

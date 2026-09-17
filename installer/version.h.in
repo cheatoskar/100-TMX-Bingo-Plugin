@@ -13,3 +13,6 @@
 #pragma once
 
 #define TMX_VERSION L"@TMX_VERSION@"
+
+// The same thing as a narrow string, for the log.
+#define TMX_VERSION_A "@TMX_VERSION@"

@@ -117,6 +117,9 @@ add_dependencies(tmx_installer tmx_mod)
 # registering a version folder called "0".
 configure_file(installer/version.h.in "${CMAKE_CURRENT_BINARY_DIR}/tmx_version.h" @ONLY)
 target_include_directories(tmx_installer PRIVATE installer "${CMAKE_CURRENT_BINARY_DIR}")
+# The DLL logs its own version, so "installed" and "running" can be told apart
+# when the ModLoader has several versions to choose from.
+target_include_directories(tmx_mod PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
              PROPERTY INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/installer)
 

@@ -546,8 +546,16 @@ void drawPanel(const State& state) {
   // A title bar rather than a bare box: it is what you grab to move it and
   // what you click to fold it away, and it is the same shape as the settings
   // window, so there is one idea to learn instead of two.
-  ImGuiWindowFlags flags =
-      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+  //
+  // The scrollbar is always reserved, like the settings window's. Without it the
+  // panel oscillates: content grows past the height, a scrollbar appears, the
+  // bar narrows the wrap width of every TextWrapped in it, the text gets taller,
+  // the bar is still needed - and on the frame it is not, the whole thing snaps
+  // back. That reads as the widget shaking. Reserving the space means the wrap
+  // width never changes from one frame to the next, which is the part that
+  // actually stops it; a fixed height alone does not.
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                           ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysVerticalScrollbar;
   // Click-through until the panel is opened: while driving it is a readout, and
   // a window that eats the mouse in a racing game is a bug, not a feature. That
   // also means it can only be dragged with the window open, which is the only
