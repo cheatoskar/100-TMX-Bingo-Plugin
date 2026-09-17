@@ -215,26 +215,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (GetFileAttributesW(previous.c_str()) != INVALID_FILE_ATTRIBUTES) removeVersionDir(previous);
   }
 
-  // And every *other* version of this product. The ModLoader keeps one folder
-  // per version and lists them all, so without this an update leaves the old
-  // one sitting beside the new - two entries for one mod, and no way for
-  // somebody to tell which of them is running.
-  {
-    WIN32_FIND_DATAW find{};
-    HANDLE handle = FindFirstFileW((product + L"\\*").c_str(), &find);
-    if (handle != INVALID_HANDLE_VALUE) {
-      do {
-        const std::wstring name = find.cFileName;
-        if (name == L"." || name == L".." || name == kVersion) continue;
-        if (find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-          removeVersionDir(product + L"\\" + name);
-        }
-      } while (FindNextFileW(handle, &find));
-      FindClose(handle);
-    }
-  }
-  renameInProfiles(loader, kProduct, L"");
-
+  // Older *versions* of this product are deliberately left alone. Deleting
+  // them tidies the ModLoader's list, and it also breaks every profile that
+  // has this mod ticked at the version being removed: the loader resolves a
+  // profile by product *and* version, and a missing one fails the whole launch
+  // with "failed to find required products to resolve their dependencies" -
+  // the game will not start at all. Shipped for about an hour and broke a
+  // player's install; an untidy list is not worth a game that will not boot.
   // The name in the ModLoader's list. Bingo leads, because that is the half
   // somebody is looking for when they scroll past it.
   const std::string productYaml =
