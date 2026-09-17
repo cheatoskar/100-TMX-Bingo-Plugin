@@ -85,6 +85,7 @@ jobs:
           copy build\Release\100TMX-Installer.exe out\
           copy build\Release\100TMX.dll out\
           copy build\Release\100TMX.asi out\
+          copy build\tmx_version.h out\
           copy README.md out\
 
       - uses: actions/upload-artifact@v4
