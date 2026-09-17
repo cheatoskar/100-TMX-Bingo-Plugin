@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.21)
 # was a second place to remember. CI overrides it from the tag
 # (-DTMX_VERSION=0.6.4), so a release can only ever announce the tag it was
 # built from; this default is what a local build calls itself.
-project(tmx_mod VERSION 0.6.4 LANGUAGES CXX)
+project(tmx_mod VERSION 0.6.8 LANGUAGES CXX)
 set(TMX_VERSION "${PROJECT_VERSION}" CACHE STRING "Version the installer registers with the ModLoader")
 
 # TrackMania Forever is 32-bit. There is no 64-bit build to make, and a 64-bit

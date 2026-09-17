@@ -44,8 +44,30 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -A Win32 ${{ steps.v.outputs.flag }}
 
+      # Four releases went out whose installer did not carry its own version
+      # number, and every guess at why was wrong because nothing ever printed
+      # it. So the build says what it decided, and then proves it.
+      - name: Show the configured version
+        shell: pwsh
+        run: |
+          Write-Host "flag was: '${{ steps.v.outputs.flag }}'"
+          Get-Content build/tmx_version.h | Select-Object -Last 3
+
       - name: Build
         run: cmake --build build --config Release
+
+      # The only thing that actually matters: the string is in the binary that
+      # ships. A wide literal, so the file is searched as Unicode.
+      - name: Verify the installer carries it
+        shell: pwsh
+        run: |
+          $line = Select-String -Path build/tmx_version.h -Pattern 'L"(.*)"'
+          $want = $line.Matches[0].Groups[1].Value
+          Write-Host "expecting: '$want'"
+          if (-not $want) { Write-Error "no version was configured at all"; exit 1 }
+          $hit = Select-String -Path build/Release/100TMX-Installer.exe -Pattern $want -Encoding unicode -Quiet
+          if ($hit) { Write-Host "OK - the installer carries $want" }
+          else { Write-Error "the installer does not contain $want"; exit 1 }
 
       - name: Collect
         run: |
