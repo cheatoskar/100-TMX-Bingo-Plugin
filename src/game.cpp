@@ -260,12 +260,18 @@ uintptr_t g_appForScan = 0;
 void loadTimeChain() {
   if (g_timeChainLoaded) return;
   g_timeChainLoaded = true;
-  if (config().timeChain.empty()) return;
-
-  g_timeChain = scan::parse(config().timeChain);
-  if (!g_timeChain.hops.empty() || g_timeChain.delta) {
-    log::line("game: calibrated clock chain from the ini: app -> %s", g_timeChain.text().c_str());
+  if (!config().timeChain.empty()) {
+    g_timeChain = scan::parse(config().timeChain);
+    if (!g_timeChain.hops.empty() || g_timeChain.delta) {
+      log::line("game: calibrated clock chain from the ini: app -> %s", g_timeChain.text().c_str());
+      return;
+    }
   }
+
+  // Built-in verified default chain for TrackMania Forever:
+  // app (0x972EB8) -> race (0x454) -> player (0x28) -> 0x0 -> sub (0x1C) -> time (0x2B0)
+  g_timeChain = scan::parse("0x454/0x28/0x0/0x1C/0x2B0");
+  log::line("game: using default verified clock chain: app -> %s", g_timeChain.text().c_str());
 }
 
 /** The clock through the calibrated chain, or -1 when it is not usable. */
@@ -539,6 +545,21 @@ bool isValidSub(uintptr_t sub, uintptr_t* outTimeOff, uintptr_t* outStateOff, in
 
 uintptr_t resolvePlayerSub(uintptr_t race, uintptr_t app, uintptr_t* outTimeOff, uintptr_t* outStateOff, int* outTime, int* outState) {
   const uintptr_t base = exeBase();
+
+  // 0. Direct verified path from race (CE verified: app + 0x454 -> 0x28 -> 0x0 -> 0x1C)
+  if (plausible(race)) {
+    uintptr_t p1 = deref(race + 0x28);
+    if (plausible(p1)) {
+      uintptr_t p2 = deref(p1 + 0x0);
+      if (plausible(p2)) {
+        uintptr_t sub = deref(p2 + 0x1C);
+        if (isValidSub(sub, outTimeOff, outStateOff, outTime, outState)) {
+          log::once("sub_resolved_race_direct", "game: resolved true player sub via race+0x28->0x0->0x1C: sub=%p", (void*)sub);
+          return sub;
+        }
+      }
+    }
+  }
 
   // 1. Direct path from app network player (Cheat Engine rows 14 & 30)
   uintptr_t net = deref(app + 0x12C);
