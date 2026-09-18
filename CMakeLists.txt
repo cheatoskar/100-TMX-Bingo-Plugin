@@ -8,8 +8,17 @@ cmake_minimum_required(VERSION 3.21)
 # was a second place to remember. CI overrides it from the tag
 # (-DTMX_VERSION=0.6.4), so a release can only ever announce the tag it was
 # built from; this default is what a local build calls itself.
-project(tmx_mod VERSION 0.6.8 LANGUAGES CXX)
-set(TMX_VERSION "${PROJECT_VERSION}" CACHE STRING "Version the installer registers with the ModLoader")
+project(tmx_mod VERSION 0.7.0 LANGUAGES CXX)
+# NOT a cache entry. A cached default is written once and then wins over the
+# source forever: this sat at 0.6.15 while `project(VERSION)` said 0.7.0, so a
+# local build installed itself into the wrong folder and the game kept loading
+# an older DLL - which is a very expensive way to debug the *previous* version.
+# `-DTMX_VERSION=...` from CI still defines it, and that is the only way it is
+# ever anything other than the version above.
+if(NOT DEFINED TMX_VERSION)
+  set(TMX_VERSION "${PROJECT_VERSION}")
+endif()
+message(STATUS "100TMX version: ${TMX_VERSION}")
 
 # TrackMania Forever is 32-bit. There is no 64-bit build to make, and a 64-bit
 # DLL cannot be loaded into the game at all - configure with `-A Win32`.
@@ -50,6 +59,7 @@ add_library(tmx_mod SHARED
   src/http.cpp
   src/log.cpp
   src/overlay.cpp
+  src/scan.cpp
   src/textures.cpp
   src/worker.cpp
 

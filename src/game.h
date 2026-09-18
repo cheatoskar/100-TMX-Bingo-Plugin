@@ -56,6 +56,16 @@ struct Snapshot {
   std::string uid;            // the map UID, empty in the menus
   std::string mapName;
   RaceState state = RaceState::Unknown;
+  /**
+   * Whether the state came from the profile's own chain rather than the search.
+   *
+   * The search infers the state from a clock it found by behaviour, and on a
+   * build where that clock turns out to be the wrong one the state is wrong
+   * with it. Anything that *locks* something - the panel refusing the mouse
+   * mid-race - may only act on the trusted one; a guess is allowed to offer,
+   * never to forbid.
+   */
+  bool stateTrusted = false;
   int raceTimeMs = -1;        // -1 when it could not be read
   /**
    * How far the walk to the local player got, when it did not get there.
@@ -99,6 +109,54 @@ bool sawMap();
 // One reading. Never throws; every unreadable pointer degrades to "not in a
 // race" rather than to a crash.
 Snapshot read();
+
+/**
+ * The game's root object, for anything that needs to walk from it.
+ *
+ * Zero until a profile has attached. Exposed for the calibration, which starts
+ * its search here: a chain from this pointer is stable across runs, and a raw
+ * address is not.
+ */
+uintptr_t appPointer();
+
+/**
+ * Work out how to reach the clock, from an address that is known to hold it.
+ *
+ * `address` comes either from Cheat Engine or from `calibrateByTime` below.
+ * On success the chain is stored in the config and used from the next poll on,
+ * and this is the only path by which the mod ever learns a build it was not
+ * shipped knowing.
+ */
+bool calibrateFromAddress(uintptr_t address);
+
+/**
+ * The same thing without Cheat Engine: the player types the time the game just
+ * showed them, in milliseconds, and the addresses holding it are the candidates.
+ *
+ * Call it twice with two different runs and the second call only considers what
+ * survived the first - one run usually leaves a few hundred coincidences, two
+ * leave almost none.
+ */
+bool calibrateByTime(int milliseconds);
+
+/** What the calibration is currently able to say, for the settings panel. */
+struct CalibrationState {
+  bool haveChain = false;
+  std::string chain;
+  /** What the chain reads right now, or -1. */
+  int reading = -1;
+  /** How many addresses are still in the running during a by-time calibration. */
+  size_t candidates = 0;
+  /** Ints currently keeping time - the automatic search, mid-flight. */
+  int ticking = 0;
+  /** Whether any of them has been seen to reset, which is what settles it. */
+  bool sawReset = false;
+  std::string note;
+};
+CalibrationState calibration();
+
+/** Throw the calibration away and start again. */
+void forgetCalibration();
 
 // Which executable this is: "tmnf", "tmuf", or empty when it cannot be told.
 // Narrows five exchanges to three on the server side.

@@ -9,6 +9,8 @@
 #include <vector>
 
 #include "config.h"
+#include "tmx_version.h"
+#include "game.h"
 #include "log.h"
 #include "imgui.h"
 #include "backends/imgui_impl_dx9.h"
@@ -36,6 +38,7 @@ bool g_inRace = false;
 // -1 unknown, 0 before the start, 1 running, 2 finished. Unknown means this
 // TrackMania build's offsets did not resolve - see `interactive()`.
 int g_raceState = -1;
+bool g_raceStateTrusted = false;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -142,8 +145,12 @@ bool interactive() {
     default: break;
   }
   if (g_uiOpen) return true;
-  // 0 BeforeStart, 1 Running, 2 Finished. Only the middle one is a run.
-  if (g_raceState == 1) return false;
+  // 0 BeforeStart, 1 Running, 2 Finished. Only the middle one is a run - and
+  // only a state we actually trust may lock the panel. Where the state is
+  // inferred from a clock the mod went looking for, being wrong means the
+  // panel refuses the mouse forever, which is how "I have to press F9 after
+  // every finish" happens.
+  if (g_raceState == 1 && g_raceStateTrusted) return false;
   // Unknown too. A build whose race state will not read used to fall back to
   // "a map is loaded means hands off", which on such a build means the panel is
   // *never* clickable except through F9 - reported as the board working until
@@ -752,6 +759,13 @@ void drawSettings(const State& state) {
     }
 
     if (ImGui::BeginTabItem("Status")) {
+      // Which DLL is actually running.
+      //
+      // The ModLoader keeps every version ever installed and picks one itself,
+      // so "I just built that" and "that is what the game loaded" are different
+      // claims - and a day was spent measuring the older one. This is the line
+      // that settles it before any other debugging starts.
+      ImGui::Text("Mod version: %s", TMX_VERSION_A);
       ImGui::Text("Game build: %s", state.buildKey.c_str());
       ImGui::Text("Offsets: %s", state.attached ? state.profile.c_str() : "not recognised");
       ImGui::Text("Variant: %s", state.variant.empty() ? "unknown" : state.variant.c_str());
@@ -769,6 +783,88 @@ void drawSettings(const State& state) {
       } else {
         ImGui::TextColored(kMuted, "Race state: no map loaded");
       }
+      ImGui::Separator();
+
+      // ------------------------------------------------------------- the clock
+      //
+      // Where a build keeps its race clock is the one thing that cannot be
+      // shipped known, so the mod works it out by watching: among the ints that
+      // keep time with the wall clock, the race clock is the only one that
+      // returns to zero when a run is restarted. Nothing else in the process
+      // does both, which is why this needs no help from anybody.
+      //
+      // What it finds is written to the ini as a chain from the game's root
+      // object, so it is learned once per build rather than once per session.
+      {
+        const game::CalibrationState calib = game::calibration();
+
+        ImGui::TextColored(kMine, "Race clock");
+        if (calib.haveChain) {
+          if (calib.reading >= 0) {
+            ImGui::TextColored(kOpen, "reading %s right now", timeString(calib.reading).c_str());
+          } else {
+            ImGui::TextColored(kMuted, "known, but nothing to read outside a race");
+          }
+          ImGui::TextColored(kMuted, "app -> %s", calib.chain.c_str());
+        } else if (state.inRace) {
+          ImGui::TextColored(kWarn, "learning it - %d clock%s found%s", calib.ticking,
+                             calib.ticking == 1 ? "" : "s", calib.sawReset ? ", one has restarted" : "");
+          ImGui::TextWrapped("Drive a lap and press restart once. That is the whole calibration.");
+        } else {
+          ImGui::TextColored(kMuted, "not learned yet - load a map");
+        }
+
+        // Only when the automatic route has actually had a chance and failed.
+        // It is a fallback, not a step: anybody being asked to type a time here
+        // has already been let down once.
+        if (!calib.haveChain && calib.ticking > 0 && state.inRace) {
+          if (ImGui::TreeNode("It cannot find it - do it by hand")) {
+            static char s_time[16] = "";
+            static char s_address[32] = "";
+
+            ImGui::TextWrapped("Type the time the game showed after a finish, like 13.91.");
+            ImGui::PushItemWidth(120);
+            ImGui::InputText("##calibtime", s_time, sizeof(s_time), ImGuiInputTextFlags_CharsDecimal);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            if (interactive() && ImGui::Button("That was my time")) {
+              std::string text = s_time;
+              for (char& c : text) {
+                if (c == ',') c = '.';
+              }
+              const double seconds = atof(text.c_str());
+              const int ms = text.find('.') == std::string::npos && seconds > 1000
+                                 ? static_cast<int>(seconds)
+                                 : static_cast<int>(seconds * 1000.0 + 0.5);
+              Command command;
+              command.kind = Command::Kind::CalibrateTime;
+              command.number = ms;
+              shared().push(command);
+              s_time[0] = '\0';
+            }
+            if (calib.candidates > 0) {
+              ImGui::TextColored(kMuted, "%zu addresses still match - one more lap settles it", calib.candidates);
+            }
+
+            ImGui::PushItemWidth(160);
+            ImGui::InputText("##calibaddr", s_address, sizeof(s_address));
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            if (interactive() && ImGui::Button("Use this address")) {
+              pushCommand(Command::Kind::CalibrateAddress, s_address);
+              s_address[0] = '\0';
+            }
+            ImGui::TextColored(kMuted, "Or an address from Cheat Engine that holds the live time.");
+            ImGui::TreePop();
+          }
+        }
+
+        if (calib.haveChain && interactive() && ImGui::Button("Learn it again")) {
+          pushCommand(Command::Kind::ForgetCalibration);
+        }
+        if (!calib.note.empty()) ImGui::TextWrapped("%s", calib.note.c_str());
+      }
+
       ImGui::Separator();
       ImGui::Text("Last: %s", state.lastCall.empty() ? "-" : state.lastCall.c_str());
       if (!state.lastError.empty()) ImGui::TextColored(kWarn, "Error: %s", state.lastError.c_str());
@@ -805,6 +901,7 @@ void draw(IDirect3DDevice9* device) {
   State state = shared().read();
   g_inRace = state.inRace;
   g_raceState = state.raceState;
+  g_raceStateTrusted = state.raceStateTrusted;
 
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();

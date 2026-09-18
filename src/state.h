@@ -190,6 +190,8 @@ struct State {
   std::string uid;
   std::string mapName;
   int raceState = -1;   // game::RaceState
+  /** True only when the state came from a known-good offset, not the search. */
+  bool raceStateTrusted = false;
   int raceTimeMs = -1;
   /** Which dereference the walk to the player died on. See game::Snapshot. */
   int raceStep = 0;
@@ -220,7 +222,11 @@ struct State {
 // Commands travel the other way: the overlay pushes, the worker performs.
 struct Command {
   enum class Kind {
-    Connect, CancelLink, Disconnect, RefreshBoards, SelectBoard, Play, Check, ReportNow, ReleaseAll, OpenUrl
+    Connect, CancelLink, Disconnect, RefreshBoards, SelectBoard, Play, Check, ReportNow, ReleaseAll, OpenUrl,
+    // Teaching this build where its race clock lives. Both walk the game's
+    // object graph, which takes long enough to matter - so they are commands
+    // for the worker rather than something a button does on the render thread.
+    CalibrateAddress, CalibrateTime, ForgetCalibration
   };
   Kind kind = Kind::RefreshBoards;
   std::string text;   // board id, or a play URL

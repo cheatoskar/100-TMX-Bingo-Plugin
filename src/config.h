@@ -69,6 +69,28 @@ struct Config {
 
   // VK_F9 by default: not bound by the game, and out of the way of the keys
   // people actually drive with.
+  /**
+   * How to reach the race clock on this build: "0x1F4/0x28/0x2BC".
+   *
+   * Everything else about reading the game is a table of offsets copied from
+   * somebody else's executable. This one is *derived* - from an address the
+   * player proved was the clock, either in Cheat Engine or by telling the mod
+   * the time it had just shown them - and it is the only one that has ever been
+   * checked against this machine rather than assumed about it.
+   *
+   * Empty means "not calibrated yet", and the old guesswork still runs.
+   */
+  std::string timeChain;
+
+  /**
+   * A one-shot: an address known to hold the clock, to derive `timeChain` from.
+   *
+   * Consumed and cleared - a heap address is true for one run of the game and
+   * misleading afterwards, which is exactly the kind of stale fact that makes
+   * this whole area so hard to debug.
+   */
+  std::string timeAddress;
+
   int toggleKey = 0x78;  // VK_F9
 
   std::string path() const;

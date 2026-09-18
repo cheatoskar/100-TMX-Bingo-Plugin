@@ -613,6 +613,30 @@ void loop() {
         case Command::Kind::ReportNow:
           lastUid.clear();  // force the next pass to report
           break;
+        case Command::Kind::CalibrateAddress: {
+          // An address out of Cheat Engine. It is only true for the run of the
+          // game it was found in, which is why what gets kept is the chain.
+          const uintptr_t address =
+              static_cast<uintptr_t>(strtoul(command.text.c_str(), nullptr,
+                                             command.text.rfind("0x", 0) == 0 ? 16 : 16));
+          if (game::calibrateFromAddress(address)) {
+            toast("The clock is calibrated - times come from the game now.");
+          } else {
+            toast(game::calibration().note);
+          }
+          break;
+        }
+        case Command::Kind::CalibrateTime:
+          if (game::calibrateByTime(command.number)) {
+            toast("The clock is calibrated - times come from the game now.");
+          } else {
+            toast(game::calibration().note);
+          }
+          break;
+        case Command::Kind::ForgetCalibration:
+          game::forgetCalibration();
+          toast("Calibration cleared.");
+          break;
         case Command::Kind::ReleaseAll:
           if (!config().token.empty()) post(url("/api/game/idle"), "{}", config().token);
           clearMap();
@@ -645,6 +669,7 @@ void loop() {
       s.uid = snap.uid;
       s.mapName = snap.mapName;
       s.raceState = static_cast<int>(snap.state);
+      s.raceStateTrusted = snap.stateTrusted;
       s.raceTimeMs = snap.raceTimeMs;
       s.raceStep = snap.raceStep;
       if (s.toastUntil > 0 && nowSeconds() > s.toastUntil) {
@@ -716,19 +741,53 @@ void loop() {
     // `Race.Time` keeps reading the same value for as long as the results
     // screen is up, which would otherwise be a request every 250 ms.
     if (linked && config().autoSubmitSelfReported && snap.state == game::RaceState::Finished &&
-        snap.raceTimeMs > 0) {
+        snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
       if (finishKey != lastAutoSubmit) {
+        lastAutoSubmit = finishKey;
+        log::line("worker: finish %d ms on map %s - checking board tiles", snap.raceTimeMs, snap.uid.c_str());
         State view = shared().read();
+        bool submitted = false;
+
+        // 1. Check hits from now-playing
         for (const BoardHit& hit : view.hits) {
-          if (!hit.selfReported) continue;
-          const bool wouldTake = !hit.held || hit.holderTime <= 0 || snap.raceTimeMs < hit.holderTime;
-          if (!wouldTake) continue;
-          lastAutoSubmit = finishKey;
+          if (!hit.selfReported) {
+            log::line("worker: tile %d on board %s is not self-reported (needs TMX replay)", hit.idx, hit.boardId.c_str());
+            continue;
+          }
+          const bool wouldTake = !hit.held || hit.holderTime <= 100 || snap.raceTimeMs < hit.holderTime;
+          if (!wouldTake) {
+            log::line("worker: tile %d not taken (already held with %d ms, my time %d ms)", hit.idx, hit.holderTime, snap.raceTimeMs);
+            continue;
+          }
+          log::line("worker: AUTO-SUBMITTING tile %d on board %s with time %d ms!", hit.idx, hit.boardId.c_str(), snap.raceTimeMs);
           check(hit.boardId, hit.idx, snap.raceTimeMs);
+          submitted = true;
           break;  // one tile per finish; the same map is rarely on two boards
         }
+
+        // 2. Fallback: check current active board directly
+        if (!submitted && view.board.loaded && !view.board.id.empty() &&
+            (view.board.verify == "trust" || view.board.verify == "game") && view.map.trackId > 0) {
+          for (const Tile& t : view.board.tiles) {
+            if (t.trackId == view.map.trackId) {
+              const bool wouldTake = !t.held || t.holderTime <= 100 || snap.raceTimeMs < t.holderTime;
+              if (wouldTake) {
+                log::line("worker: AUTO-SUBMITTING (active board fallback) tile %d on board %s with time %d ms!",
+                          t.idx, view.board.id.c_str(), snap.raceTimeMs);
+                check(view.board.id, t.idx, snap.raceTimeMs);
+                submitted = true;
+              } else {
+                log::line("worker: active board tile %d not taken (held with %d ms, my time %d ms)",
+                          t.idx, t.holderTime, snap.raceTimeMs);
+              }
+              break;
+            }
+          }
+        }
       }
+    } else if (snap.state != game::RaceState::Finished) {
+      lastAutoSubmit.clear();
     }
 
     if (linked && now - lastBoardsRefresh > 300) {

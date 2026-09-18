@@ -99,6 +99,11 @@ void Config::load() {
       else if (key == "y") overlayY = static_cast<float>(atof(value.c_str()));
       else if (key == "board") board = value;
       else if (key == "toggle_key") toggleKey = static_cast<int>(asAddress(value, static_cast<uintptr_t>(toggleKey)));
+    } else if (section == "debug") {
+      // Where the calibration lives. Its own section because it is the one
+      // thing in here a player is ever told to type by hand.
+      if (key == "time_chain") timeChain = value;
+      else if (key == "time_address") timeAddress = value;
     } else if (section == "offsets") {
       // An escape hatch, not a normal thing to need: somebody on a build the
       // mod does not recognise can describe it here instead of waiting for a
@@ -148,6 +153,17 @@ void Config::save() const {
        << "input = " << panelInput << "\n"
        << "board = " << board << "\n"
        << "toggle_key = " << toggleKey << "\n";
+
+  // Written back so a calibration survives a restart - which is the whole point
+  // of deriving a chain rather than keeping an address. `time_address` is
+  // deliberately never written: it is consumed once, and by the next run of the
+  // game it is a lie.
+  if (!timeChain.empty()) {
+    file << "\n[debug]\n"
+         << "; How this build reaches the race clock, worked out from an address\n"
+         << "; that was proved to hold it. Delete the line to calibrate again.\n"
+         << "time_chain = " << timeChain << "\n";
+  }
 }
 
 }  // namespace tmx
