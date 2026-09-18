@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.21)
 # was a second place to remember. CI overrides it from the tag
 # (-DTMX_VERSION=0.6.4), so a release can only ever announce the tag it was
 # built from; this default is what a local build calls itself.
-project(tmx_mod VERSION 0.7.0 LANGUAGES CXX)
+project(tmx_mod VERSION 0.7.1 LANGUAGES CXX)
 # NOT a cache entry. A cached default is written once and then wins over the
 # source forever: this sat at 0.6.15 while `project(VERSION)` said 0.7.0, so a
 # local build installed itself into the wrong folder and the game kept loading

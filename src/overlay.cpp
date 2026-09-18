@@ -571,8 +571,10 @@ void drawPanel(const State& state) {
 
   if (ImGui::Begin("100% TMX + Bingo###tmx-panel", nullptr, flags)) {
     drawMapBlock(state);
-    ImGui::Separator();
-    drawBoard(state);
+    if (!config().board.empty() && state.board.loaded) {
+      ImGui::Separator();
+      drawBoard(state);
+    }
 
     if (!state.toast.empty()) {
       ImGui::Separator();
@@ -619,6 +621,12 @@ void drawSettings(const State& state) {
         ImGui::TextWrapped("You are not in any board that is still running. Join one on the website and press Refresh.");
         if (ImGui::Button("Refresh")) pushCommand(Command::Kind::RefreshBoards);
       } else {
+        const bool noneSelected = config().board.empty();
+        if (ImGui::RadioButton("None (100% TMX only - no bingo board)", noneSelected) && !noneSelected) {
+          g_selectedTile = -1;
+          pushCommand(Command::Kind::SelectBoard, "");
+        }
+        ImGui::Separator();
         for (const BoardSummary& board : state.boards) {
           const bool selected = board.id == config().board;
           // Teams are worth knowing before the board is opened - and "no side

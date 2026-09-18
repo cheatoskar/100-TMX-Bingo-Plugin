@@ -88,6 +88,7 @@ void Config::load() {
       else if (key == "token") token = value;
     } else if (section == "mod") {
       if (key == "share") shareWhatIAmPlaying = asBool(value, shareWhatIAmPlaying);
+      else if (key == "auto_submit") autoSubmitSelfReported = asBool(value, autoSubmitSelfReported);
       else if (key == "overlay") overlay = asBool(value, overlay);
       else if (key == "corner") overlayCorner = atoi(value.c_str());
       else if (key == "scale") overlayScale = static_cast<float>(atof(value.c_str()));

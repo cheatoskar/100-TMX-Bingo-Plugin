@@ -331,7 +331,13 @@ void loadBoards() {
 }
 
 void loadBoard(const std::string& id) {
-  if (config().token.empty() || id.empty()) return;
+  if (id.empty()) {
+    shared().write([](State& s) {
+      s.board = BoardView();
+    });
+    return;
+  }
+  if (config().token.empty()) return;
 
   Response res = get(url("/api/game/bingo?board=" + id), config().token);
   if (!res.ok || res.status != 200) {
