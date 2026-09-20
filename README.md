@@ -41,7 +41,9 @@ this one, and what is it worth?
   to check the tile. The site reads TMX and believes only that.
 - **On a self-reported board**, where the site checks nothing, the overlay puts
   the run you just finished straight onto the tile. On by default, one switch in
-  Settings to make it a button instead. Only there; see below.
+  Settings to make it a button instead. Only there; see below — and see
+  [When a tile is filled in](#when-a-tile-is-filled-in) for *when*, which is not
+  always the instant you cross the line.
 
 The boards themselves live on the website — drawn weekly, or built privately
 for an evening — and the panel is a window onto the same board everybody else
@@ -335,6 +337,43 @@ the loaded map, and the last thing the mod did. Quote this tab in bug reports.
 
 Settings live in `Documents\100TMX\config.ini`. Deleting that file forgets the
 machine entirely.
+
+---
+
+## When a tile is filled in
+
+On a board that takes the time the game measured - *no check* or *plugin and
+replay only* - the overlay can put your run on the tile without you pressing
+anything. It waits for proof that the run actually finished, and there are two
+kinds. Whichever arrives first is the one that counts.
+
+| What proves it | When the tile is filled in |
+|---|---|
+| TrackMania wrote a replay | **Straight away**, about a second after the line |
+| The clock restarted from zero | When you press **retry**, or start the map again |
+
+The first covers most of a bingo evening: the game autosaves a replay whenever
+a run beats your own record on that map, and a tile is usually a map you have
+never driven, so your finish is a record by definition.
+
+The second is for the rest - a second or third run that does not beat your own
+best writes no replay, and then the tile is taken the moment you **press retry
+on the results screen** (or load the map again). A second or two late, and the
+panel says so while it waits.
+
+**Why it waits at all.** The race clock stops when you cross the line and it
+also stops when you press Escape, and on this game nothing readable tells the
+two apart at that moment. Two things tell them apart afterwards: a paused run
+is resumed and the clock carries on from where it stopped, while a finished
+one is followed by a new run counting from zero - and a pause never writes a
+replay. So the panel says "Clock stopped at 13.91" until one of those lands,
+and "Finished in 13.91" after. It will not congratulate you at a checkpoint,
+and it will not put a time nobody drove on somebody's board.
+
+**The one case it misses:** finishing a run that does not beat your record and
+then leaving straight to the menu, without retrying. Nothing ever proves that
+one, so the tile is not taken automatically - the button in the panel is still
+there, and it is one click.
 
 ---
 
