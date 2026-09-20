@@ -62,6 +62,11 @@ is playing.
   leave the map or close the game, and expires by itself within minutes if the
   game dies without saying so. A courtesy signal, never a reservation.
 - **Excluded maps are called out** before you waste a run on one.
+- **Your replay can go up by itself.** Finish a map the project still wants
+  and the mod hands the replay TrackMania just saved to the 100% TMX browser
+  extension, which uploads it to TMX with the session you are already signed
+  in with. Off by default, and your TMX login never comes near the mod - see
+  "Uploading a replay" below.
 
 **Everything else**
 
@@ -333,6 +338,41 @@ machine entirely.
 
 ---
 
+## Uploading a replay
+
+TMX has no upload API. Its upload endpoint is authenticated by the site’s own
+session cookie and carries an antiforgery token minted for a page on the
+exchange’s origin, so the only thing that can upload a replay for you is
+something already signed in as you - a browser. This mod is not that, and
+asking you for a TMX password so that it could would be the wrong answer to
+the problem. **Nothing here ever holds your TMX login.**
+
+What the mod can do is hand the file over:
+
+1. In Settings, tick **Upload my replays through the browser**. The mod
+   generates a pairing key and starts listening on `127.0.0.1:27311` (or the
+   next free port up to 27315).
+2. Install the
+   [TMX Universal Track Downloader](https://github.com/cheatoskar/TMX-Downloader)
+   extension, open its toolbar popup, switch the bridge on and paste the key.
+3. Finish a map the project still wants. The mod finds the autosave
+   TrackMania just wrote, the extension collects it and uploads it to the
+   right exchange, and the overlay says what TMX answered.
+
+Notes worth having in advance:
+
+- **Autosaving has to be on** in TrackMania’s replay settings, or there is no
+  file to hand over.
+- TMX refuses a replay slower than your own record on that map. On a map you
+  have already beaten that is the ordinary answer, not a fault.
+- Only maps the project still wants, and tiles on a board that is decided by a
+  replay on TMX. Every other finish would be an upload TMX turns down anyway.
+- The default replay folder is
+  `Documents\TmForever\Tracks\Replays\Autosaves`. If yours is elsewhere, set
+  `replay_dir` in `Documents\100TMX\config.ini`.
+
+---
+
 ## Unrecognised build
 
 TrackMania Forever exists in several builds, and the addresses the mod reads the
@@ -416,7 +456,14 @@ The rules it is built to:
 
 Only the **map UID** — a 22-character token that identifies an upload on the
 exchange and carries nothing of the file — plus your board choices when you
-press something. No file paths, no replays, no folder contents, no telemetry.
+press something. No file paths, no folder contents, no telemetry.
+
+One exception, and only if you switch it on: with the **replay bridge**
+enabled the mod opens a socket on `127.0.0.1` and offers the replay you just
+drove to the browser extension, which uploads it to TMX. The file goes from
+your PC to the exchange and nowhere else - not to this project’s server, not
+to anybody. The socket is loopback-only, needs a key the mod prints in its own
+settings, and does not exist at all while the switch is off.
 The mod sends nothing at all until a machine is connected. After that, sharing
 which map you are on is **on** — the overlay says so once when you connect, with
 a button to turn it off there and then, and the switch is in Settings for ever

@@ -93,6 +93,28 @@ struct Config {
 
   int toggleKey = 0x78;  // VK_F9
 
+  /**
+   * Let the browser extension collect finished replays and upload them.
+   *
+   * Off by default and opened by hand, because it is the one switch here that
+   * makes the mod listen on a socket rather than only speak. What it serves is
+   * a replay the player just drove, to a caller holding `bridgeKey`, on
+   * loopback only - see bridge.cpp.
+   */
+  bool bridge = false;
+
+  /** The pairing secret, generated the first time the bridge is switched on. */
+  std::string bridgeKey;
+
+  /**
+   * Where TrackMania saved it, when it is not the usual place.
+   *
+   * Default is `Documents\TmForever\Tracks\Replays\Autosaves`. A player with a
+   * redirected Documents folder or a `-userdir` of their own names it here
+   * rather than going without.
+   */
+  std::string replayDir;
+
   std::string path() const;
   void load();
   void save() const;

@@ -99,6 +99,9 @@ void Config::load() {
       else if (key == "x") overlayX = static_cast<float>(atof(value.c_str()));
       else if (key == "y") overlayY = static_cast<float>(atof(value.c_str()));
       else if (key == "board") board = value;
+      else if (key == "bridge") bridge = asBool(value, bridge);
+      else if (key == "bridge_key") bridgeKey = value;
+      else if (key == "replay_dir") replayDir = value;
       else if (key == "toggle_key") toggleKey = static_cast<int>(asAddress(value, static_cast<uintptr_t>(toggleKey)));
     } else if (section == "debug") {
       // Where the calibration lives. Its own section because it is the one
@@ -153,7 +156,10 @@ void Config::save() const {
        << "h = " << overlayH << "\n"
        << "input = " << panelInput << "\n"
        << "board = " << board << "\n"
-       << "toggle_key = " << toggleKey << "\n";
+       << "toggle_key = " << toggleKey << "\n"
+       << "bridge = " << (bridge ? "true" : "false") << "\n"
+       << "bridge_key = " << bridgeKey << "\n"
+       << "replay_dir = " << replayDir << "\n";
 
   // Written back so a calibration survives a restart - which is the whole point
   // of deriving a chain rather than keeping an address. `time_address` is

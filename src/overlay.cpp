@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "bridge.h"
 #include "config.h"
 #include "tmx_version.h"
 #include "game.h"
@@ -791,6 +792,47 @@ void drawSettings(const State& state) {
                          "Sends the map's UID and nothing else. The remaining\n"
                          "list shows you on it while you are there, and drops\n"
                          "you a few minutes after you stop.");
+
+      ImGui::Separator();
+
+      // The replay bridge. Its own block rather than a line in the list above,
+      // because it is the only switch here that opens a socket, and somebody
+      // turning it on should be able to read what that means without leaving
+      // the window.
+      bool bridgeOn = config().bridge;
+      if (ImGui::Checkbox("Upload my replays through the browser", &bridgeOn)) {
+        bridge::setEnabled(bridgeOn);
+      }
+      ImGui::TextWrapped(
+          "After a finish on a map the project still wants, the replay TrackMania just saved is offered to the "
+          "100%% TMX browser extension, which uploads it to TMX signed in as you. Your TMX login never comes near "
+          "this mod: it stays in your browser, where it already is.");
+      if (config().bridge) {
+        const bridge::Status bridgeState = bridge::status();
+        if (!bridgeState.running) {
+          ImGui::TextColored(kWarn, "No free port - is a second TrackMania running?");
+        } else if (bridgeState.paired) {
+          ImGui::TextColored(kOpen, "Listening on 127.0.0.1:%d - the browser has been here", bridgeState.port);
+        } else {
+          ImGui::TextColored(kMuted, "Listening on 127.0.0.1:%d - waiting for the extension", bridgeState.port);
+        }
+        ImGui::TextColored(kMuted, "Pairing key: %s", config().bridgeKey.c_str());
+        if (interactive() && ImGui::Button("Copy the pairing key")) {
+          ImGui::SetClipboardText(config().bridgeKey.c_str());
+          shared().write([](State& s) {
+            s.toast = "Key copied - paste it into the extension.";
+            s.toastUntil = nowSeconds() + 8.0;
+          });
+        }
+        if (bridgeState.queued > 0) {
+          ImGui::TextColored(kMine, "%d replay%s waiting for the browser", bridgeState.queued,
+                             bridgeState.queued == 1 ? "" : "s");
+        }
+        if (!bridgeState.lastResult.empty()) {
+          ImGui::TextColored(kMuted, "Last: %s", bridgeState.lastResult.c_str());
+        }
+        ImGui::TextColored(kMuted, "Needs autosaving on in TrackMania's replay settings.");
+      }
 
       ImGui::Separator();
       bool overlayOn = config().overlay;

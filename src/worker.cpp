@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 
+#include "bridge.h"
 #include "config.h"
 #include "game.h"
 #include "hook.h"
@@ -562,6 +563,12 @@ void loop() {
   // same Race.Time for as long as it is up, so without this one finish would
   // be submitted four times a second.
   std::string lastAutoSubmit;
+  // The same guard for the replay bridge, with one difference: the file may
+  // not be on disk the instant the results screen appears, so a finish that
+  // found nothing is retried for a few seconds rather than given up on.
+  std::string lastReplayOffer;
+  int replayOfferTries = 0;
+  double lastReplayTry = 0;
   double lastBoardRefresh = 0;
   double lastBoardsRefresh = 0;
   double menuSince = 0;
@@ -809,6 +816,40 @@ void loop() {
       lastAutoSubmit.clear();
     }
 
+    // ------------------------------------------------- the replay bridge
+    //
+    // Hand the run just driven to the browser extension, which uploads it to
+    // TMX with the player's own session - the mod cannot, and must not hold a
+    // login to try. Only for a map the project still wants, or a tile whose
+    // board is decided by a replay on TMX: every other finish would be an
+    // upload TMX refuses anyway (it will not take a replay slower than your
+    // own record), and posting them all to somebody else's server because we
+    // can is not how this earns its place.
+    if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.raceTimeMs >= 1000) {
+      const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
+      if (finishKey != lastReplayOffer) {
+        lastReplayOffer = finishKey;
+        replayOfferTries = 0;
+        lastReplayTry = 0;
+      }
+      // Ten seconds of trying, a second apart. TrackMania writes the autosave
+      // as the results screen comes up, which is usually before this runs and
+      // occasionally just after.
+      if (replayOfferTries < 10 && now - lastReplayTry > 1.0) {
+        lastReplayTry = now;
+        replayOfferTries++;
+        const State view = shared().read();
+        bool wanted = view.map.open == 1 && view.map.excluded != 1;
+        for (const BoardHit& hit : view.hits) {
+          if (!hit.selfReported) wanted = true;
+        }
+        if (wanted && !view.map.site.empty() &&
+            bridge::offerFinish(view.map.site, view.map.trackId, view.map.name, snap.uid, snap.raceTimeMs)) {
+          replayOfferTries = 10;  // done; stop looking
+        }
+      }
+    }
+
     if (linked && now - lastBoardsRefresh > 300) {
       lastBoardsRefresh = now;
       loadBoards();
@@ -832,10 +873,14 @@ void loop() {
 
 void start() {
   if (g_running.exchange(true)) return;
+  // Only opens a socket if the player switched the bridge on; `start` is a
+  // no-op otherwise, which is the state every installation is in by default.
+  bridge::start();
   g_thread = std::thread(loop);
 }
 
 void stop() {
+  bridge::stop();
   if (!g_running.exchange(false)) return;
   if (g_thread.joinable()) g_thread.join();
 }
