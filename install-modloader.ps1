@@ -13,7 +13,7 @@
 
 param(
   [string]$Dll = "$PSScriptRoot\100TMX.dll",
-  [string]$Version = "0.8.4"
+  [string]$Version = "0.9.0"
 )
 
 $ErrorActionPreference = "Stop"

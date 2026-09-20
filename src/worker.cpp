@@ -552,6 +552,62 @@ void play(const std::string& playUrl) {
   toast("Sent to the game.");
 }
 
+/**
+ * Put a finished time on whichever tile this map is, if any.
+ *
+ * Two callers, and the difference between them is only *when* they are sure
+ * the run finished: immediately, because TrackMania wrote a replay, or a
+ * moment later, because the clock restarted from zero. What happens next is
+ * identical, so it lives here rather than in two places that could drift.
+ *
+ * Only ever a self-reported board - a tile anywhere else is taken by a replay
+ * on TMX that the site goes and reads, and a number measured here is not
+ * that. And only a time that would actually take the tile: the site refuses a
+ * slower one, so sending it would generate a refusal and nothing else.
+ */
+void submitToTiles(int timeMs) {
+  State view = shared().read();
+  bool submitted = false;
+
+  // 1. Tiles the site named when this map was reported.
+  for (const BoardHit& hit : view.hits) {
+    if (!hit.selfReported) {
+      log::line("worker: tile %d on board %s is not self-reported (needs TMX replay)", hit.idx,
+                hit.boardId.c_str());
+      continue;
+    }
+    const bool wouldTake = !hit.held || hit.holderTime <= 100 || timeMs < hit.holderTime;
+    if (!wouldTake) {
+      log::line("worker: tile %d not taken (already held with %d ms, my time %d ms)", hit.idx, hit.holderTime,
+                timeMs);
+      continue;
+    }
+    log::line("worker: AUTO-SUBMITTING tile %d on board %s with time %d ms!", hit.idx, hit.boardId.c_str(), timeMs);
+    check(hit.boardId, hit.idx, timeMs);
+    submitted = true;
+    break;  // one tile per finish; the same map is rarely on two boards
+  }
+
+  // 2. Fallback: the board the panel is showing, in case the report did not
+  //    name it.
+  if (!submitted && view.board.loaded && !view.board.id.empty() &&
+      (view.board.verify == "trust" || view.board.verify == "game") && view.map.trackId > 0) {
+    for (const Tile& t : view.board.tiles) {
+      if (t.trackId != view.map.trackId) continue;
+      const bool wouldTake = !t.held || t.holderTime <= 100 || timeMs < t.holderTime;
+      if (wouldTake) {
+        log::line("worker: AUTO-SUBMITTING (active board fallback) tile %d on board %s with time %d ms!", t.idx,
+                  view.board.id.c_str(), timeMs);
+        check(view.board.id, t.idx, timeMs);
+      } else {
+        log::line("worker: active board tile %d not taken (held with %d ms, my time %d ms)", t.idx, t.holderTime,
+                  timeMs);
+      }
+      break;
+    }
+  }
+}
+
 // ------------------------------------------------------------------ the loop
 
 void loop() {
@@ -569,6 +625,9 @@ void loop() {
   std::string autoSubmitKey;
   int autoSubmitTries = 0;
   double lastAutoSubmitTry = 0;
+  // The retrospective path's own guard - a confirmation stands for as long as
+  // the player is on that map, so without this it would resubmit every tick.
+  std::string lastConfirmedSubmit;
   // The same guard for the replay bridge, with one difference: the file may
   // not be on disk the instant the results screen appears, so a finish that
   // found nothing is retried for a few seconds rather than given up on.
@@ -803,48 +862,28 @@ void loop() {
         lastAutoSubmit = finishKey;
         log::line("worker: finish %d ms on map %s (replay written) - checking board tiles", snap.raceTimeMs,
                   snap.uid.c_str());
-        State view = shared().read();
-        bool submitted = false;
-
-        // 1. Check hits from now-playing
-        for (const BoardHit& hit : view.hits) {
-          if (!hit.selfReported) {
-            log::line("worker: tile %d on board %s is not self-reported (needs TMX replay)", hit.idx, hit.boardId.c_str());
-            continue;
-          }
-          const bool wouldTake = !hit.held || hit.holderTime <= 100 || snap.raceTimeMs < hit.holderTime;
-          if (!wouldTake) {
-            log::line("worker: tile %d not taken (already held with %d ms, my time %d ms)", hit.idx, hit.holderTime, snap.raceTimeMs);
-            continue;
-          }
-          log::line("worker: AUTO-SUBMITTING tile %d on board %s with time %d ms!", hit.idx, hit.boardId.c_str(), snap.raceTimeMs);
-          check(hit.boardId, hit.idx, snap.raceTimeMs);
-          submitted = true;
-          break;  // one tile per finish; the same map is rarely on two boards
-        }
-
-        // 2. Fallback: check current active board directly
-        if (!submitted && view.board.loaded && !view.board.id.empty() &&
-            (view.board.verify == "trust" || view.board.verify == "game") && view.map.trackId > 0) {
-          for (const Tile& t : view.board.tiles) {
-            if (t.trackId == view.map.trackId) {
-              const bool wouldTake = !t.held || t.holderTime <= 100 || snap.raceTimeMs < t.holderTime;
-              if (wouldTake) {
-                log::line("worker: AUTO-SUBMITTING (active board fallback) tile %d on board %s with time %d ms!",
-                          t.idx, view.board.id.c_str(), snap.raceTimeMs);
-                check(view.board.id, t.idx, snap.raceTimeMs);
-                submitted = true;
-              } else {
-                log::line("worker: active board tile %d not taken (held with %d ms, my time %d ms)",
-                          t.idx, t.holderTime, snap.raceTimeMs);
-              }
-              break;
-            }
-          }
-        }
+        submitToTiles(snap.raceTimeMs);
       }
     } else if (snap.state != game::RaceState::Finished) {
       lastAutoSubmit.clear();
+    }
+
+    // The retrospective path: no replay was written - a run that misses your
+    // own record does not get one - but the clock has since restarted from
+    // zero, which only happens after a finish. A pause fails this test by
+    // construction: its clock carries on from where it stopped.
+    //
+    // Late by however long the player took to press restart, and that is the
+    // whole price. The immediate path above still covers a first finish on a
+    // map, which is most of what a bingo board is made of.
+    if (linked && config().autoSubmitSelfReported && snap.confirmedFinishMs >= 1000) {
+      const std::string confirmedKey = snap.uid + ":" + std::to_string(snap.confirmedFinishMs) + ":confirmed";
+      if (confirmedKey != lastConfirmedSubmit) {
+        lastConfirmedSubmit = confirmedKey;
+        log::line("worker: confirmed finish %d ms on map %s - checking board tiles", snap.confirmedFinishMs,
+                  snap.uid.c_str());
+        submitToTiles(snap.confirmedFinishMs);
+      }
     }
 
     // ------------------------------------------------- the replay bridge

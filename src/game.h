@@ -80,6 +80,22 @@ struct Snapshot {
   int raceStep = 0;
   int checkpoint = -1;        // passed so far this run
   int checkpoints = -1;       // on the map
+  /**
+   * A freeze that has been *proved* to be a finish, in milliseconds. 0 when
+   * there is nothing proved.
+   *
+   * The clock stopping means either the line was crossed or Escape was
+   * pressed, and nothing readable on this build tells the two apart at the
+   * time. What tells them apart afterwards is what the clock does next: a
+   * paused run carries on from where it stopped, a finished one starts the
+   * next run from zero. So a freeze is provisional, and this is the answer
+   * once the game has given it - a second or two later, when the player does
+   * whatever they do next.
+   *
+   * Stays set until the next freeze on the same map, so a reader polling
+   * every 250 ms cannot miss it.
+   */
+  int confirmedFinishMs = 0;
 };
 
 // The built-in profiles, plus whatever the ini added.

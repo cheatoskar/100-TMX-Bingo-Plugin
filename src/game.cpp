@@ -11,6 +11,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace tmx {
@@ -689,6 +690,30 @@ uintptr_t resolvePlayerSub(uintptr_t race, uintptr_t app, uintptr_t* outTimeOff,
 bool g_sawCheckpointMove = false;
 int g_lastLoggedCheckpoint = -2;
 
+/**
+ * Telling a finish from a pause by what the clock does next.
+ *
+ * Both stop it, so the freeze itself says nothing - but a pause is *resumed*
+ * and the clock carries on from the value it stopped at, while a finish is
+ * followed by a new run counting from zero. Measured in a real session:
+ * 6110 -> 6180 ms and 9410 -> 9490 ms were pauses, 22410 -> 120 ms and
+ * 25330 -> 250 ms were finishes. There is no overlap and no threshold to
+ * tune; it is simply whether the number went up or back to the start.
+ *
+ * This is worth more than any offset: it needs nothing read from the game
+ * beyond the clock, which is the one thing already known to be right, so it
+ * works on every build including the ones nobody here owns.
+ *
+ * The cost is that it is retrospective. Nothing automatic can act at the
+ * moment the line is crossed - only once the player has restarted or moved
+ * on. For a bingo tile that is a second or two later and no worse; for the
+ * common case it does not even apply, because a first finish on a map writes
+ * an autosave and that proves it at once.
+ */
+int g_freezeValue = -1;          // clock reading when it stopped; -1 = running
+int g_confirmedFinishMs = 0;     // the last freeze proved to be a finish
+std::string g_confirmedUid;      // and the map it happened on
+
 void logFinishCandidates(int officialState) {
   static int s_last = -2;
   if (officialState == s_last) return;
@@ -755,6 +780,9 @@ Snapshot read() {
     g_lastClockMove = 0;
     g_sawCheckpointMove = false;
     g_lastLoggedCheckpoint = -2;
+    g_freezeValue = -1;
+    g_confirmedFinishMs = 0;
+    g_confirmedUid.clear();
   }
 
   int resolvedTime = -1, resolvedState = -1;
@@ -844,6 +872,24 @@ Snapshot read() {
     // for TrackMania to have written a replay, which it does not do for a
     // pause, and the bridge has nothing to upload without one either.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
+
+    // Watch what the clock does after it stops, and say which of the two it
+    // was. See the note on g_freezeValue.
+    if (frozen) {
+      if (g_freezeValue < 0) g_freezeValue = calibrated;
+    } else if (g_freezeValue >= 0) {
+      if (calibrated < g_freezeValue) {
+        g_confirmedFinishMs = g_freezeValue;
+        g_confirmedUid = snap.uid;
+        log::line("game: that stop at %d ms was a finish - the clock restarted at %d", g_freezeValue, calibrated);
+      } else {
+        log::line("game: that stop at %d ms was a pause - the clock carried on to %d", g_freezeValue, calibrated);
+      }
+      g_freezeValue = -1;
+    }
+    // Only for the map it happened on: moving to another map must not carry a
+    // finish across to it.
+    snap.confirmedFinishMs = (!g_confirmedUid.empty() && g_confirmedUid == snap.uid) ? g_confirmedFinishMs : 0;
 
     if (calibrated <= 100) {
       snap.state = RaceState::BeforeStart;
