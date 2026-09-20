@@ -673,6 +673,21 @@ uintptr_t resolvePlayerSub(uintptr_t race, uintptr_t app, uintptr_t* outTimeOff,
  * Deliberately only on change: a line every frame would be a megabyte a
  * minute and would tell us nothing extra.
  */
+/**
+ * Has the checkpoint counter been seen to move on this map?
+ *
+ * The offsets it is read from are the loosest thing in this file - three
+ * candidates, accepted if the number looks plausible - so "0 passed" can mean
+ * a run that has passed no checkpoints or a field that is not the counter at
+ * all. Telling a finish from a pause by a counter stuck at zero would answer
+ * "still running" for ever, which is the exact failure this area keeps
+ * producing. So the corroboration is only used once the number has been seen
+ * above zero; before that the older, blunter rule stands.
+ *
+ * Reset when the race object changes, which is every new map.
+ */
+bool g_sawCheckpointMove = false;
+
 void logFinishCandidates(int officialState) {
   static int s_last = -2;
   if (officialState == s_last) return;
@@ -737,6 +752,7 @@ Snapshot read() {
     g_cachedStateOffset = 0x314;
     g_lastClock = -1;
     g_lastClockMove = 0;
+    g_sawCheckpointMove = false;
   }
 
   int resolvedTime = -1, resolvedState = -1;
@@ -776,6 +792,7 @@ Snapshot read() {
          readAt<int>(g_cachedPlayerSub + 0x33Cu, &passed)) &&
         passed >= 0 && passed < 1000) {
       snap.checkpoint = passed;
+      if (passed > 0) g_sawCheckpointMove = true;
     }
   }
 
@@ -813,7 +830,7 @@ Snapshot read() {
     // not working at all.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
     const bool everyCheckpoint = snap.checkpoints > 0 && snap.checkpoint >= snap.checkpoints;
-    const bool knowCheckpoints = snap.checkpoints > 0 && snap.checkpoint >= 0;
+    const bool knowCheckpoints = snap.checkpoints > 0 && snap.checkpoint >= 0 && g_sawCheckpointMove;
 
     if (calibrated <= 100) {
       snap.state = RaceState::BeforeStart;
@@ -866,7 +883,7 @@ Snapshot read() {
       // The same corroboration as the calibrated path above: all checkpoints
       // passed means the line was crossed, a checkpoint still missing means
       // the pause menu, and knowing neither leaves an untrusted finish.
-      if (snap.checkpoints > 0 && snap.checkpoint >= 0) {
+      if (snap.checkpoints > 0 && snap.checkpoint >= 0 && g_sawCheckpointMove) {
         snap.state = snap.checkpoint >= snap.checkpoints ? RaceState::Finished : RaceState::Running;
       } else {
         snap.state = RaceState::Finished;
