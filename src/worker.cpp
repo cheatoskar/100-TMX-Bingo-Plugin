@@ -825,8 +825,7 @@ void loop() {
     // upload TMX refuses anyway (it will not take a replay slower than your
     // own record), and posting them all to somebody else's server because we
     // can is not how this earns its place.
-    if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.stateTrusted &&
-        snap.raceTimeMs >= 1000) {
+    if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
       if (finishKey != lastReplayOffer) {
         lastReplayOffer = finishKey;

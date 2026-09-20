@@ -659,6 +659,27 @@ uintptr_t resolvePlayerSub(uintptr_t race, uintptr_t app, uintptr_t* outTimeOff,
   return 0;
 }
 
+/**
+ * Looking for the field that means "this run is over".
+ *
+ * The clock stopping is not it (a pause stops it), and `player_state` is not
+ * it either - it reads 0 while driving on the build this was first tried on.
+ * Rather than guess again, the mod writes down what the candidate fields do:
+ * one line each time the value at `player_state` changes, with the clock
+ * beside it. Finish a map, then pause at a checkpoint, and the log says which
+ * value belongs to which - at which point this can be replaced by reading the
+ * field instead of inferring from checkpoints.
+ *
+ * Deliberately only on change: a line every frame would be a megabyte a
+ * minute and would tell us nothing extra.
+ */
+void logFinishCandidates(int officialState) {
+  static int s_last = -2;
+  if (officialState == s_last) return;
+  s_last = officialState;
+  log::line("game: player_state -> %d", officialState);
+}
+
 Snapshot read() {
   Snapshot snap;
 
@@ -771,24 +792,44 @@ Snapshot read() {
       g_lastClockMove = now;
     }
 
-    // A stopped clock is not a finished run: pressing Escape mid-race stops it
-    // too, and reading that as a finish put "Finished in 34.12" on screen for
-    // somebody standing at a checkpoint - and would have put that time on a
-    // bingo tile, automatically, with nobody having driven it. So the game's
-    // own state field decides whenever it can be read, and the clock is only
-    // consulted on a build where it cannot.
+    // What tells a finish from a pause.
+    //
+    // A stopped clock does not: pressing Escape mid-race stops it too, and
+    // reading that as a finish put "Finished in 34.12" on screen for somebody
+    // standing at a checkpoint - and would have put that time on a bingo tile
+    // automatically, with nobody having driven it.
+    //
+    // Nor does the state field at 'player_state', whatever it is: it reads 0
+    // while a run is under way on this build, so the first attempt at this -
+    // "the game answered and did not say 2, therefore still running" - stopped
+    // detecting finishes at all. That is what 'finishFlagName()' and the log
+    // line below are for: they are looking for the field that actually says.
+    //
+    // Until then, the checkpoints do the work. A finished run has passed every
+    // checkpoint on the map; a run paused at the third of five has not. Both
+    // numbers we already read, neither needs a new offset, and the case they
+    // get wrong - pausing on the last lap of a multi-lap map, where the count
+    // has come round again - is narrow enough to be worth the trade against
+    // not working at all.
+    const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
+    const bool everyCheckpoint = snap.checkpoints > 0 && snap.checkpoint >= snap.checkpoints;
+    const bool knowCheckpoints = snap.checkpoints > 0 && snap.checkpoint >= 0;
+
     if (calibrated <= 100) {
       snap.state = RaceState::BeforeStart;
     } else if (resolvedState == 2) {
       snap.state = RaceState::Finished;
-    } else if (resolvedState >= 0) {
-      // The game answered, and it did not say finished. A pause lands here.
-      snap.state = RaceState::Running;
-    } else if (g_lastClockMove > 0 && now - g_lastClockMove > 600) {
-      // No state field on this build. The clock is all there is, so a freeze
-      // still counts - but it is marked untrusted, and everything automatic
-      // (auto-submit, handing the replay to the browser) refuses to act on an
-      // untrusted finish. The buttons still work; a person is then the check.
+    } else if (frozen && knowCheckpoints) {
+      // The corroborated answer, in both directions: every checkpoint passed
+      // and the clock stopped is a finish; checkpoints still missing and the
+      // clock stopped is somebody in the pause menu.
+      snap.state = everyCheckpoint ? RaceState::Finished : RaceState::Running;
+    } else if (frozen) {
+      // Nothing to corroborate with. The freeze still counts, because a build
+      // where it does not would detect no finishes at all - but it is marked
+      // untrusted, and auto-submit refuses to put an untrusted time on
+      // somebody's board. Handing the replay to the browser is *not* gated on
+      // it: a pause writes no autosave, so that path corroborates itself.
       snap.state = RaceState::Finished;
       snap.stateTrusted = false;
     } else {
@@ -798,9 +839,11 @@ Snapshot read() {
     static int s_lastCalibState = -1;
     if (static_cast<int>(snap.state) != s_lastCalibState) {
       s_lastCalibState = static_cast<int>(snap.state);
-      log::line("game: race state -> %d (calibrated clock, %d ms, official %d, %s)", s_lastCalibState,
-                calibrated, resolvedState, snap.stateTrusted ? "trusted" : "from the clock alone");
+      log::line("game: race state -> %d (calibrated clock, %d ms, official %d, cp %d/%d, %s)", s_lastCalibState,
+                calibrated, resolvedState, snap.checkpoint, snap.checkpoints,
+                snap.stateTrusted ? "trusted" : "from the clock alone");
     }
+    logFinishCandidates(resolvedState);
     return snap;
   }
 
@@ -819,14 +862,16 @@ Snapshot read() {
     } else if (resolvedState == 2) {
       // The game officially marked the race as finished.
       snap.state = RaceState::Finished;
-    } else if (resolvedState >= 0) {
-      // It answered and did not say finished - a paused run stops the clock
-      // but is still a run, and must not be reported as one that is over.
-      snap.state = RaceState::Running;
     } else if (resolvedTime >= 1000 && g_lastClockMove > 0 && now - g_lastClockMove > 600) {
-      // Nothing to ask, so the frozen clock stands - untrusted, see above.
-      snap.state = RaceState::Finished;
-      snap.stateTrusted = false;
+      // The same corroboration as the calibrated path above: all checkpoints
+      // passed means the line was crossed, a checkpoint still missing means
+      // the pause menu, and knowing neither leaves an untrusted finish.
+      if (snap.checkpoints > 0 && snap.checkpoint >= 0) {
+        snap.state = snap.checkpoint >= snap.checkpoints ? RaceState::Finished : RaceState::Running;
+      } else {
+        snap.state = RaceState::Finished;
+        snap.stateTrusted = false;
+      }
     } else {
       snap.state = RaceState::Running;
     }
