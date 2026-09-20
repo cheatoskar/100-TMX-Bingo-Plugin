@@ -395,6 +395,20 @@ void loadBoard(const std::string& id) {
     }
   }
 
+  // Struck-through lines, handed down rather than worked out - see BoardLine.
+  // Absent from a site older than this mod, in which case nothing is drawn,
+  // which is exactly how it behaved before.
+  if (const Json* rows = data.child("lines"); rows && rows->type == Json::Type::Array) {
+    for (const Json& r : rows->array) {
+      BoardLine line;
+      line.kind = r.str("kind");
+      line.n = r.integer("n");
+      line.color = parseColor(r.str("color"));
+      line.mine = r.flag("mine");
+      view.lines.push_back(line);
+    }
+  }
+
   if (const Json* rows = data.child("ladder"); rows && rows->type == Json::Type::Array) {
     for (const Json& r : rows->array) {
       LadderRow row;
@@ -696,9 +710,8 @@ void loop() {
 
     if (linked && snap.inRace && !snap.uid.empty()) {
       menuSince = 0;
-      // A new map, or the mark is old enough to be worth refreshing. The claim
-      // lasts two hours on the site, so five minutes is unhurried.
-      // Every minute rather than every five: the mark now expires in four, so
+      // A new map, or the mark is old enough to be worth refreshing.
+      // Every minute rather than every five: the mark expires in four, so
       // that a game that dies without saying goodbye stops claiming a map
       // within minutes instead of hours - and the checkpoint it carries is only
       // worth showing if it is roughly current.
@@ -832,7 +845,7 @@ void releaseNow() {
   log::line("releasing marks - the game is closing");
   // Deliberately synchronous and deliberately short: this runs on the game's
   // own thread as its window closes, and a mark left standing would sit on the
-  // remaining list for two hours telling people a lie.
+  // remaining list for its last few minutes telling people a lie.
   request("POST", config().baseUrl + "/api/game/idle", "{}", config().token, true, 1500);
 }
 

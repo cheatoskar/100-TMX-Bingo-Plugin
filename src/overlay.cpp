@@ -311,20 +311,18 @@ void drawMapBlock(const State& state) {
           ImGui::TextColored(kMuted, "Settings: do this automatically");
         }
       } else {
-        // The button that takes a tile with *no time on it* must say so. It
-        // used to read "Take this tile", which is what the normal action would
-        // look like - so somebody who finished a map, came back to the panel a
-        // moment too late and pressed it got a tile held at no time and no clue
-        // why. A mark that moves silently is a bug; so is one that silently
-        // moves empty.
-        if (finished && hit.held) ImGui::TextColored(kMuted, "Not faster than the tile.");
-        if (ImGui::Button(("Take without a time##" + hit.boardId).c_str())) {
-          pushCommand(Command::Kind::Check, hit.boardId, hit.idx, 0);
-        }
-        if (ImGui::IsItemHovered()) {
-          ImGui::SetTooltip(
-              "Marks the tile with no time on it. Nobody can take it off you, and nothing is recorded about how "
-              "fast you were. Finish the map with the panel open to put your time on instead.");
+        // No button here, deliberately. Taking a tile with *no time on it*
+        // lives in one place - the tile's own panel further down, where the
+        // map being marked is named and pictured. It was offered twice, and
+        // the copy up here sat a centimetre from "take the tile with 13.91"
+        // and looked like the ordinary action, so somebody who came back to
+        // the panel a moment too late pressed it out of reflex and ended up
+        // holding a tile at no time. A mark that moves silently is a bug; so
+        // is one that silently moves empty.
+        if (finished && hit.held) {
+          ImGui::TextColored(kMuted, "Not faster than the tile.");
+        } else if (!finished) {
+          ImGui::TextColored(kMuted, "Finish the map to put your time on this tile.");
         }
       }
     } else if (ImGui::Button(("I uploaded it##" + hit.boardId).c_str())) {
@@ -354,11 +352,28 @@ void drawBoard(const State& state) {
   } else if (board.teamCount > 0) {
     ImGui::TextColored(kWarn, "Teams - join a side on the website");
   }
-  if (board.selfReported()) {
-    ImGui::TextColored(kMuted, "Self-reported: nothing is checked against TMX");
+  // Two kinds of self-reported board, and they are not the same arrangement.
+  // "No check" takes a time from anywhere, including typed into the website;
+  // "plugin and replay only" takes one from a running game or from the replay
+  // file itself, and the website's own button is shut - which is the thing a
+  // player standing in front of this panel needs to know, because it makes the
+  // overlay the way in rather than one of two.
+  if (board.gameOnly()) {
+    ImGui::TextColored(kMuted, "Plugin and replay only: your time comes from here");
+    ImGui::TextColored(kMuted, "(or a replay file on the website) - nothing is typed");
+  } else if (board.selfReported()) {
+    ImGui::TextColored(kMuted, "No check: tiles are self-reported, TMX is not asked");
   }
 
   const int size = board.size > 0 ? board.size : 5;
+
+  // Where each tile actually landed on screen, filled in as they are drawn.
+  //
+  // Measured rather than calculated: an image tile and a plain numbered tile
+  // are not the same size once ImGui's frame padding is on them, so working
+  // the centres out from `cell` would put the stroke through a completed line
+  // a few pixels off on one of the two paths and nowhere near it on the other.
+  std::vector<ImVec2> centres(static_cast<size_t>(size) * size, ImVec2(0, 0));
 
   // The grid fills whatever width the window has been dragged to, so making the
   // panel bigger makes the board bigger rather than adding empty space.
@@ -402,6 +417,14 @@ void drawBoard(const State& state) {
     } else {
       pressed = ImGui::Button(label, ImVec2(cell, cell));
     }
+    // Straight after the widget, before the tooltip below opens a window of
+    // its own and moves what "the last item" means.
+    if (tile.idx >= 0 && static_cast<size_t>(tile.idx) < centres.size()) {
+      const ImVec2 lo = ImGui::GetItemRectMin();
+      const ImVec2 hi = ImGui::GetItemRectMax();
+      centres[static_cast<size_t>(tile.idx)] = ImVec2((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f);
+    }
+
     if (pressed && interactive()) g_selectedTile = tile.idx;
     if (here) ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
@@ -424,6 +447,46 @@ void drawBoard(const State& state) {
         ImGui::TextColored(kMuted, "unclaimed");
       }
       ImGui::EndTooltip();
+    }
+  }
+
+  // A completed line, struck through the way the website strikes it.
+  //
+  // Drawn last so it sits over the tiles, and from the measured centres, so it
+  // runs corner to corner of the line whatever size the panel has been dragged
+  // to. Which lines exist is the site's answer, not ours - see BoardLine.
+  if (!board.lines.empty()) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const int last = size - 1;
+    for (const BoardLine& line : board.lines) {
+      int from = -1;
+      int to = -1;
+      if (line.kind == "row" && line.n >= 0 && line.n < size) {
+        from = line.n * size;
+        to = line.n * size + last;
+      } else if (line.kind == "col" && line.n >= 0 && line.n < size) {
+        from = line.n;
+        to = last * size + line.n;
+      } else if (line.kind == "diag") {
+        from = 0;
+        to = size * size - 1;
+      } else if (line.kind == "anti") {
+        from = last;
+        to = last * size;
+      }
+      if (from < 0 || static_cast<size_t>(to) >= centres.size()) continue;
+
+      const ImVec2 a = centres[static_cast<size_t>(from)];
+      const ImVec2 b = centres[static_cast<size_t>(to)];
+      // A tile that was never drawn this frame has no centre, and a stroke
+      // from the top-left corner of the screen is worse than none.
+      if ((a.x == 0 && a.y == 0) || (b.x == 0 && b.y == 0)) continue;
+
+      const ImU32 colour = line.color ? line.color : IM_COL32(255, 255, 255, 235);
+      // A dark line underneath, because the board it crosses is a grid of
+      // screenshots and a thin bright stroke can vanish into a pale one.
+      draw->AddLine(a, b, IM_COL32(0, 0, 0, 150), 6.0f);
+      draw->AddLine(a, b, colour, 3.0f);
     }
   }
 
@@ -569,9 +632,15 @@ void drawPanel(const State& state) {
   // time somebody means to move it.
   if (!interactive()) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
 
-  if (ImGui::Begin("100% TMX + Bingo###tmx-panel", nullptr, flags)) {
+  // The title follows the panel: somebody playing for the project alone turned
+  // the board off, and a bar that still says "+ Bingo" over a panel with no
+  // board on it reads as the setting not having taken. The `###` id is the
+  // same either way, so the window keeps its position and size across the
+  // change rather than jumping back to the corner.
+  const bool showBoard = !config().board.empty() && state.board.loaded;
+  if (ImGui::Begin(showBoard ? "100% TMX + Bingo###tmx-panel" : "100% TMX###tmx-panel", nullptr, flags)) {
     drawMapBlock(state);
-    if (!config().board.empty() && state.board.loaded) {
+    if (showBoard) {
       ImGui::Separator();
       drawBoard(state);
     }
@@ -713,9 +782,15 @@ void drawSettings(const State& state) {
         // standing now should go too.
         pushCommand(share ? Command::Kind::ReportNow : Command::Kind::ReleaseAll);
       }
+      // Not two hours. That is what the *website's* button means - somebody
+      // saying they will be at this for the evening - and the mark this sends
+      // is the opposite: the game saying "right now", renewed every minute and
+      // gone a few minutes after the game is. Saying two hours here described
+      // a different feature and made a switched-off PC look like a player.
       ImGui::TextColored(kMuted,
-                         "Sends the map's UID and nothing else, and marks it as\n"
-                         "being played on the remaining list for two hours.");
+                         "Sends the map's UID and nothing else. The remaining\n"
+                         "list shows you on it while you are there, and drops\n"
+                         "you a few minutes after you stop.");
 
       ImGui::Separator();
       bool overlayOn = config().overlay;

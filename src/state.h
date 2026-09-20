@@ -109,6 +109,24 @@ struct LadderRow {
   int team = 0;
 };
 
+/**
+ * A line somebody has completed, as the site works it out.
+ *
+ * Not recomputed here on purpose. What counts as a line - and, on a team
+ * board, whose line it is - lives in one place, `score.ts`, and the website's
+ * stroke and the board's points are already drawn from it. A second
+ * implementation in C++ would be free to disagree with both, and the first
+ * time it did nobody would know which one to believe.
+ */
+struct BoardLine {
+  /** "row", "col", "diag" or "anti". */
+  std::string kind;
+  /** Which row or column; 0 on either diagonal. */
+  int n = 0;
+  unsigned int color = 0;
+  bool mine = false;
+};
+
 struct BoardView {
   std::string id;
   std::string title;
@@ -116,6 +134,8 @@ struct BoardView {
   int size = 5;
   std::string endsAt;
   std::vector<Tile> tiles;
+  /** Completed lines, struck through on the grid. Usually empty. */
+  std::vector<BoardLine> lines;
   std::vector<LadderRow> ladder;
   /** Empty unless this board is played in sides - the one check that decides. */
   std::vector<TeamRow> teams;
