@@ -819,8 +819,9 @@ Snapshot read() {
     // Nor does the state field at 'player_state', whatever it is: it reads 0
     // while a run is under way on this build, so the first attempt at this -
     // "the game answered and did not say 2, therefore still running" - stopped
-    // detecting finishes at all. That is what 'finishFlagName()' and the log
-    // line below are for: they are looking for the field that actually says.
+    // detecting finishes at all. That is what the diagnostic and the log
+    // line below are for: 'logFinishCandidates' writes down what that field
+    // does, so the next session can say what it means instead of guessing.
     //
     // Until then, the checkpoints do the work. A finished run has passed every
     // checkpoint on the map; a run paused at the third of five has not. Both
