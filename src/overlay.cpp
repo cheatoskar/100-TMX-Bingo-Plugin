@@ -241,7 +241,15 @@ void drawMapBlock(const State& state) {
   if (state.raceState == 2 && !map.uploadUrl.empty()) {
     ImGui::Separator();
     if (state.raceTimeMs > 0) {
-      ImGui::TextColored(kOpen, "Finished in %s", timeString(state.raceTimeMs).c_str());
+      // Not "Finished" until something says so. The clock stops when the line
+      // is crossed and when Escape is pressed, and congratulating somebody
+      // standing at a checkpoint is how this feature lost its credibility the
+      // first time. See State::finishProved.
+      if (state.finishProved) {
+        ImGui::TextColored(kOpen, "Finished in %s", timeString(state.raceTimeMs).c_str());
+      } else {
+        ImGui::TextColored(kMuted, "Clock stopped at %s", timeString(state.raceTimeMs).c_str());
+      }
     }
     if (interactive() && ImGui::Button("Upload the replay to TMX")) {
       pushCommand(Command::Kind::OpenUrl, map.uploadUrl);
@@ -291,7 +299,9 @@ void drawMapBlock(const State& state) {
     const bool wouldTake = finished && (!hit.held || hit.holderTime <= 0 || state.raceTimeMs < hit.holderTime);
 
     if (finished) {
-      ImGui::TextColored(kOpen, "Your run: %s", timeString(state.raceTimeMs).c_str());
+      ImGui::TextColored(state.finishProved ? kOpen : kMuted, "Your run: %s%s",
+                         timeString(state.raceTimeMs).c_str(),
+                         state.finishProved ? "" : " (not confirmed as a finish yet)");
       if (!hit.selfReported) {
         ImGui::TextWrapped("Upload the replay to TMX, then press \"I uploaded it\".");
       }

@@ -212,6 +212,18 @@ struct State {
   int raceState = -1;   // game::RaceState
   /** True only when the state came from a known-good offset, not the search. */
   bool raceStateTrusted = false;
+  /**
+   * Whether the stopped clock has been shown to be a finish.
+   *
+   * A stopped clock is a finish or the pause menu, and at the moment it stops
+   * nothing readable tells the two apart. Two things later do: TrackMania
+   * writing a replay, which it does not for a pause, and the clock restarting
+   * from zero, which a resumed pause does not do either. Until one of them
+   * lands the panel says the clock stopped rather than claiming a finish -
+   * somebody standing at a checkpoint should not be congratulated.
+   */
+  bool finishProved = false;
+
   int raceTimeMs = -1;
   /** Which dereference the walk to the player died on. See game::Snapshot. */
   int raceStep = 0;

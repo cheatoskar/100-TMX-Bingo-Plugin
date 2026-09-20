@@ -619,15 +619,16 @@ void loop() {
   // same Race.Time for as long as it is up, so without this one finish would
   // be submitted four times a second.
   std::string lastAutoSubmit;
-  // Which finish the proof-of-replay loop is currently working on, and how
-  // many times it has looked. Separate from `lastAutoSubmit`, which only
-  // ever names a finish that was actually submitted.
-  std::string autoSubmitKey;
-  int autoSubmitTries = 0;
-  double lastAutoSubmitTry = 0;
   // The retrospective path's own guard - a confirmation stands for as long as
   // the player is on that map, so without this it would resubmit every tick.
   std::string lastConfirmedSubmit;
+  // Was the current freeze a finish? Asked once a second for ten seconds -
+  // the replay appears as the results screen does - and then left alone.
+  // Shared by the panel and by auto-submit so they can never disagree.
+  std::string proofKey;
+  bool proofSeen = false;
+  int proofTries = 0;
+  double lastProofTry = 0;
   // The same guard for the replay bridge, with one difference: the file may
   // not be on disk the instant the results screen appears, so a finish that
   // found nothing is retried for a few seconds rather than given up on.
@@ -773,6 +774,29 @@ void loop() {
     const double now = nowSeconds();
     const bool linked = !config().token.empty();
 
+    // ------------------------------------------------- is this really a finish
+    if (snap.state == game::RaceState::Finished && snap.raceTimeMs >= 1000) {
+      const std::string key = snap.uid + ":" + std::to_string(snap.raceTimeMs);
+      if (key != proofKey) {
+        proofKey = key;
+        proofSeen = false;
+        proofTries = 0;
+        lastProofTry = 0;
+      }
+      if (!proofSeen && proofTries < 10 && now - lastProofTry > 1.0) {
+        lastProofTry = now;
+        proofTries++;
+        proofSeen = bridge::sawFreshReplay(snap.uid);
+      }
+    } else if (snap.state != game::RaceState::Finished) {
+      proofKey.clear();
+      proofSeen = false;
+    }
+    // The clock restarting from zero is the other proof, and it arrives after
+    // the results screen rather than during it.
+    const bool finishProved = proofSeen || snap.confirmedFinishMs > 0;
+    shared().write([&](State& s) { s.finishProved = finishProved; });
+
     // Twenty seconds in with a patched table and not one frame through it means
     // the game draws through something else entirely - worth saying plainly
     // rather than leaving "nothing happens" as the only symptom.
@@ -834,31 +858,12 @@ void loop() {
     if (linked && config().autoSubmitSelfReported && snap.state == game::RaceState::Finished &&
         snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
-      if (finishKey != autoSubmitKey) {
-        autoSubmitKey = finishKey;
-        autoSubmitTries = 0;
-        lastAutoSubmitTry = 0;
-      }
 
-      // Wait for TrackMania to write the replay before putting a time on
-      // anybody's board. The race state cannot tell a pause from a finish on
-      // every build - the clock stops for both - and that file is the one
-      // thing that only a real finish produces. Ten seconds, a second apart:
-      // the file appears as the results screen does, and scanning the folder
-      // sixty times a second would be absurd.
-      //
-      // A finish that does not beat the player's own record writes no
-      // autosave, so this sometimes declines to act on a perfectly real
-      // finish. That costs one button press. The other way round costs
-      // somebody their bingo tile.
-      bool haveProof = false;
-      if (finishKey != lastAutoSubmit && autoSubmitTries < 10 && now - lastAutoSubmitTry > 1.0) {
-        lastAutoSubmitTry = now;
-        autoSubmitTries++;
-        haveProof = bridge::sawFreshReplay(snap.uid);
-      }
-
-      if (haveProof) {
+      // The replay TrackMania wrote is the proof, worked out above. A pause
+      // produces none, so it can never get this far. A finish that misses the
+      // player's own record produces none either - that one is caught by the
+      // clock restarting, further down.
+      if (proofSeen && finishKey != lastAutoSubmit) {
         lastAutoSubmit = finishKey;
         log::line("worker: finish %d ms on map %s (replay written) - checking board tiles", snap.raceTimeMs,
                   snap.uid.c_str());
