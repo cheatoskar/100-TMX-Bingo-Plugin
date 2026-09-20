@@ -687,6 +687,7 @@ uintptr_t resolvePlayerSub(uintptr_t race, uintptr_t app, uintptr_t* outTimeOff,
  * Reset when the race object changes, which is every new map.
  */
 bool g_sawCheckpointMove = false;
+int g_lastLoggedCheckpoint = -2;
 
 void logFinishCandidates(int officialState) {
   static int s_last = -2;
@@ -753,6 +754,7 @@ Snapshot read() {
     g_lastClock = -1;
     g_lastClockMove = 0;
     g_sawCheckpointMove = false;
+    g_lastLoggedCheckpoint = -2;
   }
 
   int resolvedTime = -1, resolvedState = -1;
@@ -793,6 +795,10 @@ Snapshot read() {
         passed >= 0 && passed < 1000) {
       snap.checkpoint = passed;
       if (passed > 0) g_sawCheckpointMove = true;
+      if (passed != g_lastLoggedCheckpoint) {
+        g_lastLoggedCheckpoint = passed;
+        log::line("game: checkpoints passed -> %d (of %d on the map)", passed, snap.checkpoints);
+      }
     }
   }
 
@@ -823,33 +829,26 @@ Snapshot read() {
     // line below are for: 'logFinishCandidates' writes down what that field
     // does, so the next session can say what it means instead of guessing.
     //
-    // Until then, the checkpoints do the work. A finished run has passed every
-    // checkpoint on the map; a run paused at the third of five has not. Both
-    // numbers we already read, neither needs a new offset, and the case they
-    // get wrong - pausing on the last lap of a multi-lap map, where the count
-    // has come round again - is narrow enough to be worth the trade against
-    // not working at all.
+    // The checkpoints were tried for this and cannot do it either. The
+    // counter reads **1 at the start line**, before a wheel has turned - on
+    // one map "cp 1/18" at 80 ms - so "every checkpoint passed" is never true
+    // and every finish read as a run still going. Which is how the third
+    // attempt at this shipped as "no finish is ever detected". The offset is
+    // wrong, or it counts something that is not checkpoints; either way it
+    // has no business deciding anything until somebody knows which.
+    //
+    // So: the stopped clock stands, as it did before any of this. It is the
+    // one signal that has always worked, and a pause is its one false
+    // positive. What stops a pause doing damage is no longer this decision -
+    // it is that nothing automatic acts on a finish alone. Auto-submit waits
+    // for TrackMania to have written a replay, which it does not do for a
+    // pause, and the bridge has nothing to upload without one either.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
-    const bool everyCheckpoint = snap.checkpoints > 0 && snap.checkpoint >= snap.checkpoints;
-    const bool knowCheckpoints = snap.checkpoints > 0 && snap.checkpoint >= 0 && g_sawCheckpointMove;
 
     if (calibrated <= 100) {
       snap.state = RaceState::BeforeStart;
-    } else if (resolvedState == 2) {
+    } else if (resolvedState == 2 || frozen) {
       snap.state = RaceState::Finished;
-    } else if (frozen && knowCheckpoints) {
-      // The corroborated answer, in both directions: every checkpoint passed
-      // and the clock stopped is a finish; checkpoints still missing and the
-      // clock stopped is somebody in the pause menu.
-      snap.state = everyCheckpoint ? RaceState::Finished : RaceState::Running;
-    } else if (frozen) {
-      // Nothing to corroborate with. The freeze still counts, because a build
-      // where it does not would detect no finishes at all - but it is marked
-      // untrusted, and auto-submit refuses to put an untrusted time on
-      // somebody's board. Handing the replay to the browser is *not* gated on
-      // it: a pause writes no autosave, so that path corroborates itself.
-      snap.state = RaceState::Finished;
-      snap.stateTrusted = false;
     } else {
       snap.state = RaceState::Running;
     }
@@ -881,15 +880,8 @@ Snapshot read() {
       // The game officially marked the race as finished.
       snap.state = RaceState::Finished;
     } else if (resolvedTime >= 1000 && g_lastClockMove > 0 && now - g_lastClockMove > 600) {
-      // The same corroboration as the calibrated path above: all checkpoints
-      // passed means the line was crossed, a checkpoint still missing means
-      // the pause menu, and knowing neither leaves an untrusted finish.
-      if (snap.checkpoints > 0 && snap.checkpoint >= 0 && g_sawCheckpointMove) {
-        snap.state = snap.checkpoint >= snap.checkpoints ? RaceState::Finished : RaceState::Running;
-      } else {
-        snap.state = RaceState::Finished;
-        snap.stateTrusted = false;
-      }
+      // The stopped clock, same as the calibrated path above.
+      snap.state = RaceState::Finished;
     } else {
       snap.state = RaceState::Running;
     }

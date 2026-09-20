@@ -606,6 +606,11 @@ void refusePairing() {
   log::line("bridge: pairing refused");
 }
 
+bool sawFreshReplay(const std::string& uid) {
+  Found found;
+  return findAutosave(uid, found);
+}
+
 bool offerFinish(const std::string& site, int trackId, const std::string& mapName, const std::string& uid,
                  int timeMs) {
   if (!g_running || site.empty() || trackId <= 0) return false;

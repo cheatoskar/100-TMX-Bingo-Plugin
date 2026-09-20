@@ -63,6 +63,21 @@ void approvePairing();
 void refusePairing();
 
 /**
+ * Did TrackMania just write a replay?
+ *
+ * Ground truth that a run really finished, and the only one available on a
+ * build where neither the state field nor the checkpoint counter can be
+ * believed: the game writes an autosave when a run is completed and never
+ * when it is paused. Used to gate auto-submit, so a paused run cannot put a
+ * time on a bingo board however the race state was read.
+ *
+ * Note it is *not* written for a finish that does not beat the player's own
+ * record on that map, so a false answer here means "no proof", not "no
+ * finish". The button in the panel still works.
+ */
+bool sawFreshReplay(const std::string& uid);
+
+/**
  * Offer the replay just driven, if one can be found.
  *
  * Called on the worker thread after a finish. Looks for an autosave written in

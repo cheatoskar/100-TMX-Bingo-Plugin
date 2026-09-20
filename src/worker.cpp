@@ -563,6 +563,12 @@ void loop() {
   // same Race.Time for as long as it is up, so without this one finish would
   // be submitted four times a second.
   std::string lastAutoSubmit;
+  // Which finish the proof-of-replay loop is currently working on, and how
+  // many times it has looked. Separate from `lastAutoSubmit`, which only
+  // ever names a finish that was actually submitted.
+  std::string autoSubmitKey;
+  int autoSubmitTries = 0;
+  double lastAutoSubmitTry = 0;
   // The same guard for the replay bridge, with one difference: the file may
   // not be on disk the instant the results screen appears, so a finish that
   // found nothing is retried for a few seconds rather than given up on.
@@ -767,11 +773,36 @@ void loop() {
     // `Race.Time` keeps reading the same value for as long as the results
     // screen is up, which would otherwise be a request every 250 ms.
     if (linked && config().autoSubmitSelfReported && snap.state == game::RaceState::Finished &&
-        snap.stateTrusted && snap.raceTimeMs >= 1000) {
+        snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
-      if (finishKey != lastAutoSubmit) {
+      if (finishKey != autoSubmitKey) {
+        autoSubmitKey = finishKey;
+        autoSubmitTries = 0;
+        lastAutoSubmitTry = 0;
+      }
+
+      // Wait for TrackMania to write the replay before putting a time on
+      // anybody's board. The race state cannot tell a pause from a finish on
+      // every build - the clock stops for both - and that file is the one
+      // thing that only a real finish produces. Ten seconds, a second apart:
+      // the file appears as the results screen does, and scanning the folder
+      // sixty times a second would be absurd.
+      //
+      // A finish that does not beat the player's own record writes no
+      // autosave, so this sometimes declines to act on a perfectly real
+      // finish. That costs one button press. The other way round costs
+      // somebody their bingo tile.
+      bool haveProof = false;
+      if (finishKey != lastAutoSubmit && autoSubmitTries < 10 && now - lastAutoSubmitTry > 1.0) {
+        lastAutoSubmitTry = now;
+        autoSubmitTries++;
+        haveProof = bridge::sawFreshReplay(snap.uid);
+      }
+
+      if (haveProof) {
         lastAutoSubmit = finishKey;
-        log::line("worker: finish %d ms on map %s - checking board tiles", snap.raceTimeMs, snap.uid.c_str());
+        log::line("worker: finish %d ms on map %s (replay written) - checking board tiles", snap.raceTimeMs,
+                  snap.uid.c_str());
         State view = shared().read();
         bool submitted = false;
 
@@ -854,7 +885,8 @@ void loop() {
           // that - so it is said on the panel rather than written to the log
           // and forgotten.
           shared().write([](State& s) {
-            s.toast = "No replay found to upload. Turn autosaving on in TrackMania, or set replay_dir.";
+            s.toast = "No replay was written for that run - TrackMania does not autosave one that is "
+                      "slower than your own record on the map.";
             s.toastUntil = nowSeconds() + 15.0;
           });
         }
