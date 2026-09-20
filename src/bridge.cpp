@@ -78,6 +78,20 @@ std::thread g_thread;
 std::string g_lastResult;
 unsigned long long g_counter = 0;
 
+/** A browser is asking to be let in, and when it asked. */
+std::atomic<bool> g_pairAsked{false};
+std::atomic<bool> g_pairApproved{false};
+std::atomic<double> g_pairAskedAt{0};
+
+/**
+ * How long an unanswered request to connect stands.
+ *
+ * Long enough to alt-tab back into the game and find the button, short enough
+ * that a prompt nobody answered is not still sitting there an hour later
+ * waiting to be clicked by accident.
+ */
+constexpr double kPairWindowSeconds = 180;
+
 double nowSeconds() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -112,16 +126,29 @@ std::string documentsPath() {
 /**
  * Where TrackMania puts the replay it saved for you.
  *
- * The default user directory, unless the ini names another - a player running
- * the game with its own `-userdir`, or with Documents redirected somewhere
- * this cannot guess, sets `replay_dir` and is done. Both Nations and United
- * keep autosaves under the same relative path.
+ * There is more than one answer, which is the bug this list exists to fix. The
+ * user directory is named after the *game*, not after the executable: Nations
+ * Forever writes to `Documents\\TrackMania`, United Forever to
+ * `Documents\\TmForever`, and a machine with both games installed has both
+ * folders - so checking only one of them finds an old folder sitting there,
+ * empty of anything recent, and reports "no autosave" while the file is being
+ * written a directory away. Reported by the first person to try it.
+ *
+ * So all of them are searched, and `replay_dir` in the ini still wins outright
+ * for a `-userdir` or a redirected Documents that nothing here could guess.
  */
-std::string autosaveDir() {
-  if (!config().replayDir.empty()) return config().replayDir;
+std::vector<std::string> autosaveDirs() {
+  std::vector<std::string> out;
+  if (!config().replayDir.empty()) {
+    out.push_back(config().replayDir);
+    return out;
+  }
   const std::string docs = documentsPath();
-  if (docs.empty()) return "";
-  return docs + "\\TmForever\\Tracks\\Replays\\Autosaves";
+  if (docs.empty()) return out;
+  for (const char* game : {"TrackMania", "TmForever"}) {
+    out.push_back(docs + "\\" + game + "\\Tracks\\Replays\\Autosaves");
+  }
+  return out;
 }
 
 /** Does this file carry that map's UID? The UID sits in the header as plain text. */
@@ -156,17 +183,6 @@ struct Found {
  * uploaded under somebody's name after an alt-tab.
  */
 bool findAutosave(const std::string& uid, Found& out) {
-  const std::string dir = autosaveDir();
-  if (dir.empty()) return false;
-
-  WIN32_FIND_DATAA find{};
-  const std::string pattern = dir + "\\*.Replay.Gbx";
-  HANDLE handle = FindFirstFileA(pattern.c_str(), &find);
-  if (handle == INVALID_HANDLE_VALUE) {
-    log::once("autosave", "bridge: no autosaves in %s", dir.c_str());
-    return false;
-  }
-
   FILETIME now{};
   GetSystemTimeAsFileTime(&now);
   const unsigned long long nowTicks =
@@ -175,27 +191,46 @@ bool findAutosave(const std::string& uid, Found& out) {
 
   unsigned long long best = 0;
   bool bestVerified = false;
-  do {
-    if (find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-    const unsigned long long written =
-        (static_cast<unsigned long long>(find.ftLastWriteTime.dwHighDateTime) << 32) |
-        find.ftLastWriteTime.dwLowDateTime;
-    if (written + window < nowTicks) continue;
+  std::string searched;
 
-    const std::string path = dir + "\\" + find.cFileName;
-    const bool verified = fileMentions(path, uid);
-    // A confirmed file always beats an unconfirmed one, however new.
-    if (bestVerified && !verified) continue;
-    if (verified == bestVerified && written <= best) continue;
+  for (const std::string& dir : autosaveDirs()) {
+    searched += (searched.empty() ? "" : ", ") + dir;
 
-    best = written;
-    bestVerified = verified;
-    out.path = path;
-    out.name = find.cFileName;
-    out.verified = verified;
-  } while (FindNextFileA(handle, &find));
-  FindClose(handle);
+    WIN32_FIND_DATAA find{};
+    // Case-insensitive on Windows, which matters: the game writes ".Replay.gbx"
+    // with a small g.
+    const std::string pattern = dir + "\\*.Replay.Gbx";
+    HANDLE handle = FindFirstFileA(pattern.c_str(), &find);
+    if (handle == INVALID_HANDLE_VALUE) continue;
 
+    do {
+      if (find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+      const unsigned long long written =
+          (static_cast<unsigned long long>(find.ftLastWriteTime.dwHighDateTime) << 32) |
+          find.ftLastWriteTime.dwLowDateTime;
+      if (written + window < nowTicks) continue;
+
+      const std::string path = dir + "\\" + find.cFileName;
+      const bool verified = fileMentions(path, uid);
+      // A confirmed file always beats an unconfirmed one, however new - and
+      // across folders that is the whole point: two games can both have
+      // written something in the last minute.
+      if (bestVerified && !verified) continue;
+      if (verified == bestVerified && written <= best) continue;
+
+      best = written;
+      bestVerified = verified;
+      out.path = path;
+      out.name = find.cFileName;
+      out.verified = verified;
+    } while (FindNextFileA(handle, &find));
+    FindClose(handle);
+  }
+
+  if (best == 0) {
+    log::once("autosave", "bridge: nothing written in the last %ds under %s", kAutosaveAgeSeconds,
+              searched.empty() ? "(no replay folder found)" : searched.c_str());
+  }
   return best != 0;
 }
 
@@ -262,6 +297,28 @@ std::string handleRequest(const std::string& method,
                           const std::string& query,
                           const std::string& key,
                           const std::string& body) {
+  // Two requests take no key, because they are how a browser comes to have
+  // one. Neither gives anything away: the first says a mod is here, the second
+  // asks a question that only the player, in the game, can answer yes to.
+  if (method == "GET" && path == "/v1/ping") {
+    return jsonResponse(200, std::string("{\"ok\":true,\"mod\":") + Json::quote(TMX_VERSION_A) + "}");
+  }
+
+  if (method == "POST" && path == "/v1/pair") {
+    if (g_pairApproved.exchange(false)) {
+      g_pairAsked = false;
+      log::line("bridge: handed the key to a browser that was allowed in");
+      return jsonResponse(200, std::string("{\"ok\":true,\"key\":") + Json::quote(config().bridgeKey) + "}");
+    }
+    const bool fresh = !g_pairAsked.exchange(true);
+    g_pairAskedAt = nowSeconds();
+    if (fresh) {
+      log::line("bridge: a browser is asking to connect");
+      toast("A browser wants to connect - allow it in the mod window (F9).", 30.0);
+    }
+    return jsonResponse(200, "{\"ok\":false,\"status\":\"pending\"}");
+  }
+
   if (key.empty() || key != config().bridgeKey) {
     return jsonResponse(401, "{\"ok\":false,\"error\":\"pair this browser with the key the mod shows\"}");
   }
@@ -514,14 +571,39 @@ void setEnabled(bool on) {
 }
 
 Status status() {
+  // A request nobody answered lapses here rather than in a timer of its own:
+  // this is called every frame the window is open, which is exactly when it
+  // matters whether the prompt is still live.
+  if (g_pairAsked && nowSeconds() - g_pairAskedAt > kPairWindowSeconds) {
+    g_pairAsked = false;
+    g_pairApproved = false;
+  }
+
   Status out;
   out.running = g_running;
   out.port = g_port;
   out.paired = g_paired;
+  out.pairing = g_pairAsked;
   std::lock_guard<std::mutex> guard(g_lock);
   out.queued = static_cast<int>(g_queue.size());
   out.lastResult = g_lastResult;
   return out;
+}
+
+void approvePairing() {
+  if (config().bridgeKey.empty()) {
+    config().bridgeKey = randomKey();
+    config().save();
+  }
+  g_pairApproved = true;
+  log::line("bridge: pairing allowed - waiting for the browser to collect the key");
+  toast("Allowed. The browser picks the key up within a couple of seconds.", 10.0);
+}
+
+void refusePairing() {
+  g_pairAsked = false;
+  g_pairApproved = false;
+  log::line("bridge: pairing refused");
 }
 
 bool offerFinish(const std::string& site, int trackId, const std::string& mapName, const std::string& uid,

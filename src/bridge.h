@@ -37,6 +37,17 @@ struct Status {
   int port = 0;
   /** A client has spoken to us at least once with the right key. */
   bool paired = false;
+  /**
+   * A browser has asked to be let in and is waiting for an answer here.
+   *
+   * The key used to be copied out of this window by hand. It only has to be
+   * secret from *other* programs on the machine, and a question with a button
+   * answers that just as well as a password does - so the browser asks, the
+   * player says yes in the game, and the key is handed over once. The same
+   * shape as the device code the website uses to link a machine, with the
+   * confirming end swapped round.
+   */
+  bool pairing = false;
   /** Replays waiting to be collected. */
   int queued = 0;
   /** What happened to the last one, in plain words. Empty until something has. */
@@ -44,6 +55,12 @@ struct Status {
 };
 
 Status status();
+
+/** Hand the key to the browser that is waiting. Called from the overlay. */
+void approvePairing();
+
+/** Say no, and forget the request. */
+void refusePairing();
 
 /**
  * Offer the replay just driven, if one can be found.

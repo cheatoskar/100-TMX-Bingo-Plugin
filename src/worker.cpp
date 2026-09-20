@@ -767,7 +767,7 @@ void loop() {
     // `Race.Time` keeps reading the same value for as long as the results
     // screen is up, which would otherwise be a request every 250 ms.
     if (linked && config().autoSubmitSelfReported && snap.state == game::RaceState::Finished &&
-        snap.raceTimeMs >= 1000) {
+        snap.stateTrusted && snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
       if (finishKey != lastAutoSubmit) {
         lastAutoSubmit = finishKey;
@@ -825,7 +825,8 @@ void loop() {
     // upload TMX refuses anyway (it will not take a replay slower than your
     // own record), and posting them all to somebody else's server because we
     // can is not how this earns its place.
-    if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.raceTimeMs >= 1000) {
+    if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.stateTrusted &&
+        snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
       if (finishKey != lastReplayOffer) {
         lastReplayOffer = finishKey;
@@ -843,9 +844,20 @@ void loop() {
         for (const BoardHit& hit : view.hits) {
           if (!hit.selfReported) wanted = true;
         }
-        if (wanted && !view.map.site.empty() &&
-            bridge::offerFinish(view.map.site, view.map.trackId, view.map.name, snap.uid, snap.raceTimeMs)) {
+        const bool offered = wanted && !view.map.site.empty() &&
+                             bridge::offerFinish(view.map.site, view.map.trackId, view.map.name, snap.uid,
+                                                 snap.raceTimeMs);
+        if (offered) {
           replayOfferTries = 10;  // done; stop looking
+        } else if (wanted && replayOfferTries >= 10) {
+          // Ten seconds of looking and nothing appeared. Almost always this is
+          // autosaving being off, and the player is the only one who can fix
+          // that - so it is said on the panel rather than written to the log
+          // and forgotten.
+          shared().write([](State& s) {
+            s.toast = "No replay found to upload. Turn autosaving on in TrackMania, or set replay_dir.";
+            s.toastUntil = nowSeconds() + 15.0;
+          });
         }
       }
     }

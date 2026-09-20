@@ -640,6 +640,24 @@ void drawPanel(const State& state) {
   // change rather than jumping back to the corner.
   const bool showBoard = !config().board.empty() && state.board.loaded;
   if (ImGui::Begin(showBoard ? "100% TMX + Bingo###tmx-panel" : "100% TMX###tmx-panel", nullptr, flags)) {
+    // A browser asking to be let in. At the very top of the panel and not
+    // behind F9, because the person who needs to answer it is looking at the
+    // game, and a question they cannot find is a question that never gets
+    // answered.
+    const bridge::Status bridgeNow = bridge::status();
+    if (bridgeNow.pairing) {
+      ImGui::TextColored(kMine, "A browser wants to connect");
+      ImGui::TextWrapped("Allow it to collect finished replays and upload them to TMX as you.");
+      if (interactive()) {
+        if (ImGui::Button("Allow")) bridge::approvePairing();
+        ImGui::SameLine();
+        if (ImGui::Button("No")) bridge::refusePairing();
+      } else {
+        ImGui::TextColored(kMuted, "Press F9 to answer.");
+      }
+      ImGui::Separator();
+    }
+
     drawMapBlock(state);
     if (showBoard) {
       ImGui::Separator();
@@ -832,6 +850,29 @@ void drawSettings(const State& state) {
           ImGui::TextColored(kMuted, "Last: %s", bridgeState.lastResult.c_str());
         }
         ImGui::TextColored(kMuted, "Needs autosaving on in TrackMania's replay settings.");
+
+        // Where the replays are. Two games, two folder names - Nations writes
+        // to Documents\TrackMania, United to Documents\TmForever - and both
+        // are searched without being told. This is for the third case: a
+        // -userdir, a redirected Documents, or a portable install, where
+        // nothing can be guessed and the mod would otherwise just keep saying
+        // it found nothing.
+        static char s_replayDir[512] = {0};
+        static bool s_replayDirLoaded = false;
+        if (!s_replayDirLoaded) {
+          s_replayDirLoaded = true;
+          strncpy_s(s_replayDir, sizeof(s_replayDir), config().replayDir.c_str(), _TRUNCATE);
+        }
+        ImGui::TextColored(kMuted, "Replay folder (leave empty for the usual places):");
+        ImGui::PushItemWidth(-1);
+        if (ImGui::InputText("##replaydir", s_replayDir, sizeof(s_replayDir))) {
+          config().replayDir = s_replayDir;
+        }
+        ImGui::PopItemWidth();
+        if (ImGui::IsItemDeactivatedAfterEdit()) config().save();
+        if (config().replayDir.empty()) {
+          ImGui::TextColored(kMuted, "Searching Documents\\TrackMania and Documents\\TmForever.");
+        }
       }
 
       ImGui::Separator();

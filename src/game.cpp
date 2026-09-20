@@ -720,39 +720,6 @@ Snapshot read() {
 
   int resolvedTime = -1, resolvedState = -1;
 
-  // 0. The calibrated chain, if this build has been taught one. It is checked
-  //    first and, when it answers, nothing below runs: it is the only reading
-  //    here that was ever verified against what the game displayed.
-  const int calibrated = calibratedTime(app);
-  if (calibrated >= 0) {
-    snap.raceTimeMs = calibrated;
-    snap.stateTrusted = true;
-
-    if (calibrated != g_lastClock) {
-      g_lastClock = calibrated;
-      g_lastClockMove = now;
-    }
-
-    if (calibrated <= 100) {
-      snap.state = RaceState::BeforeStart;
-    } else if (g_lastClockMove > 0 && now - g_lastClockMove > 400) {
-      // A race clock that has stopped is a finished run. With the real clock
-      // this is reliable in a way it never was while the number itself was in
-      // doubt - a map clock never stops, so a freeze used to mean nothing.
-      snap.state = RaceState::Finished;
-    } else {
-      snap.state = RaceState::Running;
-    }
-
-    static int s_lastCalibState = -1;
-    if (static_cast<int>(snap.state) != s_lastCalibState) {
-      s_lastCalibState = static_cast<int>(snap.state);
-      log::line("game: race state -> %d (calibrated clock, %d ms at %p)", s_lastCalibState, calibrated,
-                (void*)g_timeAddress);
-    }
-    return snap;
-  }
-
   // 1. Try reading from cached player sub
   if (g_cachedPlayerSub) {
     int t = -1, s = -1;
@@ -776,6 +743,67 @@ Snapshot read() {
     }
   }
 
+  // The checkpoints this player has passed, where the sub-object gave itself
+  // up. Read here rather than after the state decision, because the calibrated
+  // branch below returns before ever reaching the old place - so a build with
+  // a learned clock reported no checkpoint at all, and the website's "CP 3/8"
+  // was empty for exactly the people the feature is for.
+  if (g_cachedPlayerSub) {
+    int passed = 0;
+    if ((readAt<int>(g_cachedPlayerSub + o.playerCheckpoints, &passed) ||
+         readAt<int>(g_cachedPlayerSub + 0x330u, &passed) ||
+         readAt<int>(g_cachedPlayerSub + 0x33Cu, &passed)) &&
+        passed >= 0 && passed < 1000) {
+      snap.checkpoint = passed;
+    }
+  }
+
+  // 0. The calibrated chain, if this build has been taught one. It is checked
+  //    first and, when it answers, nothing below runs: it is the only reading
+  //    here that was ever verified against what the game displayed.
+  const int calibrated = calibratedTime(app);
+  if (calibrated >= 0) {
+    snap.raceTimeMs = calibrated;
+    snap.stateTrusted = true;
+
+    if (calibrated != g_lastClock) {
+      g_lastClock = calibrated;
+      g_lastClockMove = now;
+    }
+
+    // A stopped clock is not a finished run: pressing Escape mid-race stops it
+    // too, and reading that as a finish put "Finished in 34.12" on screen for
+    // somebody standing at a checkpoint - and would have put that time on a
+    // bingo tile, automatically, with nobody having driven it. So the game's
+    // own state field decides whenever it can be read, and the clock is only
+    // consulted on a build where it cannot.
+    if (calibrated <= 100) {
+      snap.state = RaceState::BeforeStart;
+    } else if (resolvedState == 2) {
+      snap.state = RaceState::Finished;
+    } else if (resolvedState >= 0) {
+      // The game answered, and it did not say finished. A pause lands here.
+      snap.state = RaceState::Running;
+    } else if (g_lastClockMove > 0 && now - g_lastClockMove > 600) {
+      // No state field on this build. The clock is all there is, so a freeze
+      // still counts - but it is marked untrusted, and everything automatic
+      // (auto-submit, handing the replay to the browser) refuses to act on an
+      // untrusted finish. The buttons still work; a person is then the check.
+      snap.state = RaceState::Finished;
+      snap.stateTrusted = false;
+    } else {
+      snap.state = RaceState::Running;
+    }
+
+    static int s_lastCalibState = -1;
+    if (static_cast<int>(snap.state) != s_lastCalibState) {
+      s_lastCalibState = static_cast<int>(snap.state);
+      log::line("game: race state -> %d (calibrated clock, %d ms, official %d, %s)", s_lastCalibState,
+                calibrated, resolvedState, snap.stateTrusted ? "trusted" : "from the clock alone");
+    }
+    return snap;
+  }
+
   if (g_cachedPlayerSub && resolvedTime >= 0) {
     snap.raceTimeMs = resolvedTime;
     snap.stateTrusted = true;
@@ -789,11 +817,16 @@ Snapshot read() {
     if (resolvedTime <= 100) {
       snap.state = RaceState::BeforeStart;
     } else if (resolvedState == 2) {
-      // Game officially marked the race as Finished
+      // The game officially marked the race as finished.
       snap.state = RaceState::Finished;
-    } else if (resolvedTime >= 1000 && g_lastClockMove > 0 && now - g_lastClockMove > 500) {
-      // Time frozen after finish line for > 500ms (and car drove at least 1 second)
+    } else if (resolvedState >= 0) {
+      // It answered and did not say finished - a paused run stops the clock
+      // but is still a run, and must not be reported as one that is over.
+      snap.state = RaceState::Running;
+    } else if (resolvedTime >= 1000 && g_lastClockMove > 0 && now - g_lastClockMove > 600) {
+      // Nothing to ask, so the frozen clock stands - untrusted, see above.
       snap.state = RaceState::Finished;
+      snap.stateTrusted = false;
     } else {
       snap.state = RaceState::Running;
     }
@@ -806,13 +839,7 @@ Snapshot read() {
                 static_cast<unsigned>(g_cachedTimeOffset), static_cast<unsigned>(g_cachedStateOffset));
     }
 
-    int passed = 0;
-    if ((readAt<int>(g_cachedPlayerSub + o.playerCheckpoints, &passed) ||
-         readAt<int>(g_cachedPlayerSub + 0x330u, &passed) ||
-         readAt<int>(g_cachedPlayerSub + 0x33Cu, &passed)) &&
-        passed >= 0 && passed < 1000) {
-      snap.checkpoint = passed;
-    }
+    // (the checkpoint count is read further up, for both paths)
     return snap;
   }
 

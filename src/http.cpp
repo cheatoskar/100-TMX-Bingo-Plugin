@@ -1,5 +1,7 @@
 #include "http.h"
 
+#include "tmx_version.h"
+
 #include <windows.h>
 #include <winhttp.h>
 
@@ -108,6 +110,13 @@ Response request(const std::string& method,
 
   std::wstring headers = L"Content-Type: application/json\r\n";
   if (!bearer.empty()) headers += L"Authorization: Bearer " + widen(bearer) + L"\r\n";
+  // Which version is asking. The site needs it to refuse a capture from a
+  // build with a known defect - 0.8.0 and earlier read a paused run as a
+  // finished one, so a tile could be taken with a time nobody drove. A client
+  // can of course lie about this; that is not the point. The point is that an
+  // honest old build identifies itself and is turned away rather than quietly
+  // putting a wrong time on somebody's board.
+  headers += L"X-TMX-Mod: " + std::wstring(TMX_VERSION) + L"\r\n";
 
   if (!WinHttpSendRequest(request, headers.c_str(), static_cast<DWORD>(headers.size()),
                           body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()),
