@@ -67,65 +67,70 @@ To update, run the new installer; to remove it, run
 > lists the **SHA-256** of every file - check yours with
 > `Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256` and compare. A
 > false-positive report has gone to Microsoft. If you would rather not run the
-> installer at all, [install the DLL by hand](#by-hand-with-only-the-dll).
+> installer at all, use the [ready-to-copy zip](#by-hand-without-the-installer).
 
-### By hand, with only the DLL
+### By hand, without the installer
 
-If you would rather not run an `.exe` at all, the installer does nothing you
-cannot do yourself. The ModLoader keeps a product database instead of a mods
-folder; installing the mod means one folder in it with two small text files and
-the DLL.
+If you would rather not run an `.exe` at all, every release also has
+**`100TMX-ModLoader.zip`**: the mod's folder for the ModLoader, ready to copy.
 
-1. Download **`100TMX.dll`** from [Releases](../../releases/latest).
+1. Download **`100TMX-ModLoader.zip`** from [Releases](../../releases/latest)
+   and unzip it. Inside is a folder named **`100% TMX + Bingo`**.
 2. Open `%LOCALAPPDATA%\TMLoader\database\TmForever\products` (paste it into
    the Explorer address bar).
-3. Create this layout - the folder name is exactly what the ModLoader lists,
-   and the version folder is the version you downloaded:
+3. Copy the **`100% TMX + Bingo`** folder in there. If it already exists, let
+   Windows merge the folders - the new version goes next to the old one.
+4. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
-   ```
-   products\
-     100% TMX + Bingo\
-       description.yaml
-       0.9.5\
-         description.yaml
-         100TMX.dll
-   ```
+To remove the mod, delete the `100% TMX + Bingo` folder again.
 
-4. `100% TMX + Bingo\description.yaml`:
+<details>
+<summary>What is in the folder, if you want to make it yourself</summary>
 
-   ```yaml
-   name: 100% TMX + Bingo
-   author: cheatoskar
-   type: modification
-   homepage: 'https://100tmx.com/'
-   description: 'Bingo boards and the 100% TMX project in the game.'
-   ```
+The ModLoader keeps a product database instead of a mods folder. The folder
+name is exactly what it lists, and each version has a folder of its own:
 
-5. `0.9.5\description.yaml` - the ModLoader's CoreMod is what actually loads
-   the DLL, so it is listed as a dependency:
+```
+products\
+  100% TMX + Bingo\
+    description.yaml
+    0.9.5\
+      description.yaml
+      100TMX.dll
+```
 
-   ```yaml
-   executable: 100TMX.dll
-   dependencies:
-     - id: CoreMod
-       version: ^1.0.1
-   changelog: '- The bingo panel, map status, and map marks.'
-   ```
+`100% TMX + Bingo\description.yaml`:
 
-6. Open the ModLoader, tick **100% TMX + Bingo**, start the game. To update,
-   add a folder for the new version next to the old one; to remove the mod,
-   delete the `100% TMX + Bingo` folder.
+```yaml
+name: 100% TMX + Bingo
+author: cheatoskar
+type: modification
+homepage: 'https://100tmx.com/'
+description: 'Bingo boards and the 100% TMX project in the game.'
+```
 
-Save both `.yaml` files as plain UTF-8 (Notepad's default). Or let the
-PowerShell script [`install-modloader.ps1`](install-modloader.ps1) write them -
-it is the installer in readable form:
+`0.9.5\description.yaml` - the ModLoader's CoreMod is what actually loads the
+DLL, so it is listed as a dependency:
+
+```yaml
+executable: 100TMX.dll
+dependencies:
+  - id: CoreMod
+    version: ^1.0.1
+changelog: '- The bingo panel, map status, and map marks.'
+```
+
+Save both as plain UTF-8 (Notepad's default). The zip, the installer and the
+PowerShell script [`install-modloader.ps1`](install-modloader.ps1) all write
+exactly these files - the zip is built by that script:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install-modloader.ps1 -Dll .\100TMX.dll -Version 0.9.5
 ```
 
-The installer writes exactly these files and nothing else - no registry, no
-game folder, no startup entry. Its source is [`installer/main.cpp`](installer/main.cpp).
+None of them touch anything else - no registry, no game folder, no startup
+entry. The installer's source is [`installer/main.cpp`](installer/main.cpp).
+</details>
 
 <details>
 <summary>Without the ModLoader (ASI loader)</summary>

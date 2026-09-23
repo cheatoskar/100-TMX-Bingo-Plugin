@@ -13,7 +13,11 @@
 
 param(
   [string]$Dll = "$PSScriptRoot\100TMX.dll",
-  [string]$Version = "0.9.5"
+  [string]$Version = "0.9.5",
+  # Write the product folder here instead of into the ModLoader. CI uses it to
+  # build the ready-to-copy zip from the very same code that installs, so the
+  # two can never disagree about a file name or a line of YAML.
+  [string]$Products = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,25 +27,28 @@ if (-not (Test-Path $Dll)) {
 }
 
 $loader = "$env:LOCALAPPDATA\TMLoader"
-if (-not (Test-Path $loader)) {
+$packaging = $Products -ne ""
+if (-not $packaging -and -not (Test-Path $loader)) {
   Write-Error "The TrackMania ModLoader does not seem to be installed ($loader is missing). Get it from https://tomashu.dev/software/tmloader/"
 }
 
 # The ModLoader's list shows the product *folder*, not the name inside the yaml -
 # that one only appears in the details panel. So the folder is the name.
-$products = "$loader\database\TmForever\products"
+$products = if ($packaging) { $Products } else { "$loader\database\TmForever\products" }
 $product  = "$products\100% TMX + Bingo"
 $target   = "$product\$Version"
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 
 # An older install used a different folder, and a profile ticks a mod by that
 # same string - so both come across, or the mod quietly switches itself off.
-$old = "$products\100TMX"
-if (Test-Path $old) { Remove-Item $old -Recurse -Force }
-Get-ChildItem "$loader\database\TmForever\profiles" -Filter *.yaml -ErrorAction SilentlyContinue | ForEach-Object {
-  $text = Get-Content $_.FullName -Raw
-  if ($text -match "id: 100TMX") {
-    ($text -replace "id: 100TMX(\r?\n)", "id: '100% TMX + Bingo'`$1") | Set-Content $_.FullName -Encoding utf8 -NoNewline
+if (-not $packaging) {
+  $old = "$products\100TMX"
+  if (Test-Path $old) { Remove-Item $old -Recurse -Force }
+  Get-ChildItem "$loader\database\TmForever\profiles" -Filter *.yaml -ErrorAction SilentlyContinue | ForEach-Object {
+    $text = Get-Content $_.FullName -Raw
+    if ($text -match "id: 100TMX") {
+      ($text -replace "id: 100TMX(\r?\n)", "id: '100% TMX + Bingo'`$1") | Set-Content $_.FullName -Encoding utf8 -NoNewline
+    }
   }
 }
 

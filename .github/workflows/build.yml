@@ -103,6 +103,22 @@ jobs:
           copy build\tmx_version.h out\
           copy README.md out\
 
+      # The manual install, ready to copy: the ModLoader's product folder with
+      # both description files and the DLL, named exactly as the installer
+      # names them - because it is the installer's own script that writes it.
+      # Unzip, drop "100% TMX + Bingo" into the ModLoader's products folder,
+      # done. pwsh rather than Windows PowerShell: its Compress-Archive writes
+      # forward slashes, which every unzip tool reads as folders.
+      - name: ModLoader zip
+        shell: pwsh
+        run: |
+          $line = Select-String -Path build/tmx_version.h -Pattern '^#define TMX_VERSION_A "(.+)"$'
+          $version = $line.Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force pkg | Out-Null
+          ./install-modloader.ps1 -Dll build/Release/100TMX.dll -Version $version -Products (Resolve-Path pkg).Path
+          Compress-Archive -Path "pkg/100% TMX + Bingo" -DestinationPath out/100TMX-ModLoader.zip -Force
+          Get-ChildItem -Recurse pkg | Select-Object FullName, Length
+
       # A fingerprint of every file, so anybody can check that what they
       # downloaded is byte for byte what this build produced - the honest answer
       # to "a scanner flagged it, is it really yours?". Written twice: as
@@ -111,7 +127,7 @@ jobs:
       - name: Hashes
         shell: pwsh
         run: |
-          $files = "100TMX-Installer.exe", "100TMX.dll", "100TMX.asi", "tmx_version.h"
+          $files = "100TMX-Installer.exe", "100TMX-ModLoader.zip", "100TMX.dll", "100TMX.asi", "tmx_version.h"
           $sums = foreach ($f in $files) {
             $h = (Get-FileHash "out/$f" -Algorithm SHA256).Hash.ToLower()
             "$h  $f"
@@ -143,6 +159,7 @@ jobs:
         with:
           files: |
             out/100TMX-Installer.exe
+            out/100TMX-ModLoader.zip
             out/100TMX.dll
             out/100TMX.asi
             out/tmx_version.h
