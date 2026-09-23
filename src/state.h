@@ -7,6 +7,9 @@
 // everybody notices.
 #pragma once
 
+#include <windows.h>
+
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -166,6 +169,22 @@ struct BoardView {
   bool selfReported() const { return verify == "trust" || verify == "game"; }
   /** The website cannot take a tile here, so the overlay must always offer to. */
   bool gameOnly() const { return verify == "game"; }
+  /**
+   * Past its end, by the same rule the site uses (`now > endsAt` in
+   * verify.ts). The picker only lists running boards, but the one the panel
+   * shows is remembered by id and keeps loading after it ends - so without
+   * this a finished board looked exactly like a live one that ignored you.
+   */
+  bool closed() const { return !endsAt.empty() && isPastUtc(endsAt); }
+  /** "2026-09-28T00:00:00.000Z" against the clock: both UTC text in one format, so text order is time order. */
+  static bool isPastUtc(const std::string& iso) {
+    SYSTEMTIME t;
+    GetSystemTime(&t);
+    char now[32];
+    sprintf_s(now, sizeof(now), "%04d-%02d-%02dT%02d:%02d:%02d", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
+              t.wSecond);
+    return iso.substr(0, 19) < std::string(now);
+  }
 };
 
 // The current map's place on a board the player is in.
@@ -223,6 +242,11 @@ struct State {
    * somebody standing at a checkpoint should not be congratulated.
    */
   bool finishProved = false;
+  // Tile results, on the Bingo window rather than the 100% TMX one.
+  std::string bingoToast;
+  double bingoToastUntil = 0;
+  // The player-info fields behind the finish flag, for the Status tab.
+  std::string finishProbe;
 
   int raceTimeMs = -1;
   /** Which dereference the walk to the player died on. See game::Snapshot. */

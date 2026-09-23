@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -32,6 +33,11 @@ namespace {
 
 std::atomic<bool> g_running{false};
 std::thread g_thread;
+std::thread g_reader;
+
+// The newest reading of the game, written by the reader thread only.
+std::mutex g_snapLock;
+game::Snapshot g_snap;
 
 using Clock = std::chrono::steady_clock;
 
@@ -43,6 +49,14 @@ void toast(const std::string& text) {
   shared().write([&](State& s) {
     s.toast = text;
     s.toastUntil = nowSeconds() + 6.0;
+  });
+}
+
+/** A tile result - said on the Bingo window, where the tile is. */
+void bingoToast(const std::string& text) {
+  shared().write([&](State& s) {
+    s.bingoToast = text;
+    s.bingoToastUntil = nowSeconds() + 8.0;
   });
 }
 
@@ -493,37 +507,37 @@ void check(const std::string& board, int idx, int timeMs = 0) {
   body += "}";
   Response res = post(url("/api/game/bingo"), body, config().token);
   if (!res.ok) {
-    toast("Could not reach the site.");
+    bingoToast("Could not reach the site.");
     return;
   }
 
   Json data = Json::parse(res.body);
   if (res.status != 200) {
-    toast(data.str("error", "That did not work."));
+    bingoToast(data.str("error", "That did not work."));
     return;
   }
 
   if (data.flag("captured")) {
     int ms = data.integer("replayTime");
     if (ms > 0) {
-      toast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");
+      bingoToast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");
     } else {
       // A self-reported tile taken with no time at all: there is nothing to
       // print, and "captured - 0.0s" would read as a bug.
-      toast("Tile taken.");
+      bingoToast("Tile taken.");
     }
   } else {
     std::string reason = data.str("reason");
-    if (reason == "no-replay") toast("No replay on TMX for that map yet - upload it first.");
+    if (reason == "no-replay") bingoToast("No replay on TMX for that map yet - upload it first.");
     else if (reason == "too-slow") {
       // On a self-reported board the same refusal means something else: either
       // somebody holds it and you sent no time, or yours was not faster.
-      toast(timeMs > 0 ? "Not faster than the tile's holder." : "Somebody holds that tile - give a time to take it.");
+      bingoToast(timeMs > 0 ? "Not faster than the tile's holder." : "Somebody holds that tile - give a time to take it.");
     }
     else if (reason == "before-board") {
-      toast("That replay predates the board. TMX will not take a slower one, so this board needs its setting changed on the website.");
+      bingoToast("That replay predates the board. TMX will not take a slower one, so this board needs its setting changed on the website.");
     }
-    else toast("Nothing captured.");
+    else bingoToast("Nothing captured.");
   }
 
   loadBoard(board);
@@ -591,7 +605,7 @@ void submitToTiles(int timeMs) {
   // 2. Fallback: the board the panel is showing, in case the report did not
   //    name it.
   if (!submitted && view.board.loaded && !view.board.id.empty() &&
-      (view.board.verify == "trust" || view.board.verify == "game") && view.map.trackId > 0) {
+      view.board.selfReported() && !view.board.closed() && view.map.trackId > 0) {
     for (const Tile& t : view.board.tiles) {
       if (t.trackId != view.map.trackId) continue;
       const bool wouldTake = !t.held || t.holderTime <= 100 || timeMs < t.holderTime;
@@ -605,6 +619,59 @@ void submitToTiles(int timeMs) {
       }
       break;
     }
+  }
+}
+
+/**
+ * Reading the game, on a thread that does nothing else.
+ *
+ * It used to be one step of the worker loop, which also makes every website
+ * request - and a request can take seconds, up to its timeout. On 2026-09-23
+ * that loop was held up for sixteen seconds across a whole results screen,
+ * and the finish it should have seen was never read. The game is local and
+ * cheap to read; nothing here waits on anything but the next 50 ms.
+ */
+void readLoop() {
+  while (g_running) {
+    // Attaching is retried until it takes: the offsets can only be validated
+    // while a map is loaded, so a player who starts the game and sits in the
+    // menus attaches the moment they drive anything.
+    if (!game::attached()) {
+      if (game::attach()) {
+        log::line("game: attached with profile '%s' (build %s)", game::attachedProfile().c_str(),
+                  game::buildKey().c_str());
+      } else {
+        log::once("attach", "game: no offset profile matches yet (build %s) - load a map and this retries",
+                  game::buildKey().c_str());
+      }
+    }
+
+    const ULONGLONG passStarted = GetTickCount64();
+    game::Snapshot snap = game::read();
+    // Should never happen now that nothing here waits on the network or the
+    // log; if it does, this is the line that says where the time went.
+    const ULONGLONG passMs = GetTickCount64() - passStarted;
+    if (passMs > 500) log::line("reader: reading the game took %llu ms", passMs);
+    log::once("map", "game: %s%s", snap.inRace ? "on map uid " : "in the menus",
+              snap.inRace ? snap.uid.c_str() : "");
+    {
+      std::lock_guard<std::mutex> guard(g_snapLock);
+      g_snap = snap;
+    }
+    shared().write([&](State& s) {
+      s.attached = game::attached();
+      s.sawMap = game::sawMap();
+      s.profile = game::attachedProfile();
+      s.inRace = snap.inRace;
+      s.uid = snap.uid;
+      s.mapName = snap.mapName;
+      s.raceState = static_cast<int>(snap.state);
+      s.raceStateTrusted = snap.stateTrusted;
+      s.raceTimeMs = snap.raceTimeMs;
+      s.raceStep = snap.raceStep;
+      s.finishProbe = snap.finishProbe;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
 
@@ -622,6 +689,10 @@ void loop() {
   // The retrospective path's own guard - a confirmation stands for as long as
   // the player is on that map, so without this it would resubmit every tick.
   std::string lastConfirmedSubmit;
+  // uid:time of every finish already put on a tile, whichever path proved it.
+  // The game's own flag fires at the line, the replay a second later and the
+  // clock reset on retry - three proofs of one run must be one submission.
+  std::string lastSubmittedFinish;
   // Was the current freeze a finish? Asked once a second for ten seconds -
   // the replay appears as the results screen does - and then left alone.
   // Shared by the panel and by auto-submit so they can never disagree.
@@ -738,36 +809,22 @@ void loop() {
       }
     }
 
-    // Attaching is retried until it takes: the offsets can only be validated
-    // while a map is loaded, so a player who starts the game and sits in the
-    // menus attaches the moment they drive anything.
-    if (!game::attached()) {
-      if (game::attach()) {
-        log::line("game: attached with profile '%s' (build %s)", game::attachedProfile().c_str(),
-                  game::buildKey().c_str());
-      } else {
-        log::once("attach", "game: no offset profile matches yet (build %s) - load a map and this retries",
-                  game::buildKey().c_str());
-      }
+    // The game is read on its own thread (readLoop); this only takes the
+    // latest reading. What used to sit here could not see a finish that
+    // happened while a website request held this loop up.
+    game::Snapshot snap;
+    {
+      std::lock_guard<std::mutex> guard(g_snapLock);
+      snap = g_snap;
     }
-
-    game::Snapshot snap = game::read();
-    log::once("map", "game: %s%s", snap.inRace ? "on map uid " : "in the menus",
-              snap.inRace ? snap.uid.c_str() : "");
     shared().write([&](State& s) {
-      s.attached = game::attached();
-      s.sawMap = game::sawMap();
-      s.profile = game::attachedProfile();
-      s.inRace = snap.inRace;
-      s.uid = snap.uid;
-      s.mapName = snap.mapName;
-      s.raceState = static_cast<int>(snap.state);
-      s.raceStateTrusted = snap.stateTrusted;
-      s.raceTimeMs = snap.raceTimeMs;
-      s.raceStep = snap.raceStep;
       if (s.toastUntil > 0 && nowSeconds() > s.toastUntil) {
         s.toast.clear();
         s.toastUntil = 0;
+      }
+      if (s.bingoToastUntil > 0 && nowSeconds() > s.bingoToastUntil) {
+        s.bingoToast.clear();
+        s.bingoToastUntil = 0;
       }
     });
 
@@ -794,7 +851,7 @@ void loop() {
     }
     // The clock restarting from zero is the other proof, and it arrives after
     // the results screen rather than during it.
-    const bool finishProved = proofSeen || snap.confirmedFinishMs > 0;
+    const bool finishProved = proofSeen || snap.confirmedFinishMs > 0 || snap.gameFinishMs > 0;
     shared().write([&](State& s) { s.finishProved = finishProved; });
 
     // Twenty seconds in with a patched table and not one frame through it means
@@ -863,14 +920,39 @@ void loop() {
       // produces none, so it can never get this far. A finish that misses the
       // player's own record produces none either - that one is caught by the
       // clock restarting, further down.
-      if (proofSeen && finishKey != lastAutoSubmit) {
+      if (proofSeen && finishKey != lastAutoSubmit && finishKey != lastSubmittedFinish) {
         lastAutoSubmit = finishKey;
+        lastSubmittedFinish = finishKey;
         log::line("worker: finish %d ms on map %s (replay written) - checking board tiles", snap.raceTimeMs,
                   snap.uid.c_str());
         submitToTiles(snap.raceTimeMs);
       }
     } else if (snap.state != game::RaceState::Finished) {
       lastAutoSubmit.clear();
+    }
+
+    // The game's own finish: race_state went 1 -> 2 on the verified player
+    // object, at the moment the line was crossed. Needs no replay and no
+    // retry, and a pause cannot produce it - the field stays at 1.
+    //
+    // Taken from a queue, not from the latest reading, so a finish that came
+    // and went while this loop was waiting on the website is still here.
+    game::FinishEvent fin;
+    while (game::popFinish(&fin)) {
+      if (!linked || !config().autoSubmitSelfReported || fin.ms < 1000) continue;
+      const std::string key = fin.uid + ":" + std::to_string(fin.ms);
+      if (key == lastSubmittedFinish) continue;
+      // The tiles this checks are the current map's: a finish on a map the
+      // player has already left would be offered to the wrong one.
+      if (fin.uid != snap.uid) {
+        log::line("worker: finish %d ms on %s arrived after leaving that map - not submitted", fin.ms,
+                  fin.uid.c_str());
+        continue;
+      }
+      lastSubmittedFinish = key;
+      log::line("worker: game finish (%s) %d ms on map %s - checking board tiles", fin.how, fin.ms,
+                fin.uid.c_str());
+      submitToTiles(fin.ms);
     }
 
     // The retrospective path: no replay was written - a run that misses your
@@ -883,8 +965,10 @@ void loop() {
     // map, which is most of what a bingo board is made of.
     if (linked && config().autoSubmitSelfReported && snap.confirmedFinishMs >= 1000) {
       const std::string confirmedKey = snap.uid + ":" + std::to_string(snap.confirmedFinishMs) + ":confirmed";
-      if (confirmedKey != lastConfirmedSubmit) {
+      const std::string plainKey = snap.uid + ":" + std::to_string(snap.confirmedFinishMs);
+      if (confirmedKey != lastConfirmedSubmit && plainKey != lastSubmittedFinish) {
         lastConfirmedSubmit = confirmedKey;
+        lastSubmittedFinish = plainKey;
         log::line("worker: confirmed finish %d ms on map %s - checking board tiles", snap.confirmedFinishMs,
                   snap.uid.c_str());
         submitToTiles(snap.confirmedFinishMs);
@@ -963,6 +1047,7 @@ void start() {
   // Only opens a socket if the player switched the bridge on; `start` is a
   // no-op otherwise, which is the state every installation is in by default.
   bridge::start();
+  g_reader = std::thread(readLoop);
   g_thread = std::thread(loop);
 }
 
@@ -970,6 +1055,7 @@ void stop() {
   bridge::stop();
   if (!g_running.exchange(false)) return;
   if (g_thread.joinable()) g_thread.join();
+  if (g_reader.joinable()) g_reader.join();
 }
 
 void releaseNow() {
@@ -986,6 +1072,7 @@ void signalStop() {
   // Detached rather than joined: the caller is the process shutting down, and
   // the loop may be inside an HTTP request with seconds left on its timeout.
   if (g_thread.joinable()) g_thread.detach();
+  if (g_reader.joinable()) g_reader.detach();
 }
 
 }  // namespace worker

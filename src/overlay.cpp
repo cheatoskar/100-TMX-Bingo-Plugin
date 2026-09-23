@@ -262,6 +262,21 @@ void drawMapBlock(const State& state) {
     ImGui::TextColored(kWarn, "also here: %s", other.name.empty() ? "another player" : other.name.c_str());
   }
 
+  // What happened to the replay after a finish, when the uploader is on. The
+  // bingo side of a finish - tiles, times to beat - is the Bingo window's.
+  if (config().bridge) {
+    const bridge::Status uploader = bridge::status();
+    if (!uploader.lastResult.empty()) ImGui::TextColored(kMuted, "Replay: %s", uploader.lastResult.c_str());
+  }
+}
+
+/**
+ * The loaded map as a bingo tile: which board, who holds it, the time to
+ * beat, and the button that takes it. The top of the Bingo window since
+ * 0.9.2 - the 100% TMX window is about the project and says nothing about
+ * boards.
+ */
+void drawHits(const State& state) {
   // A map is loaded but the race state never resolved: the offsets for this
   // build did not match. Everything that needs a finish - the time on a tile,
   // auto-submit, "you beat the holder" - is silently impossible, so it is said
@@ -271,8 +286,10 @@ void drawMapBlock(const State& state) {
     ImGui::TextWrapped("Times cannot be filled in for you. Take tiles from the website, or report the build below.");
   }
 
+  bool firstHit = true;
   for (const BoardHit& hit : state.hits) {
-    ImGui::Separator();
+    if (!firstHit) ImGui::Separator();
+    firstHit = false;
     ImGui::TextColored(kMine, "Tile %d on %s", hit.idx + 1,
                        hit.title.empty() ? hit.boardId.c_str() : hit.title.c_str());
     if (hit.held) {
@@ -350,6 +367,17 @@ void drawBoard(const State& state) {
   }
 
   ImGui::TextUnformatted(board.title.empty() ? board.id.c_str() : board.title.c_str());
+
+  // A board past its end still loads - it is remembered by id - so it has to
+  // say so, or it reads as a live board that ignores every finish. Everything
+  // below is drawn faded and nothing on it can be taken: the site refuses a
+  // capture on a closed board anyway, so a button would only earn a refusal.
+  const bool closed = board.closed();
+  if (closed) {
+    ImGui::TextColored(kWarn, "Closed - ended %s", board.endsAt.substr(0, 10).c_str());
+    ImGui::TextColored(kMuted, "Pick a running board on the Bingo tab (F9).");
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.45f);
+  }
 
   // Two things about a board change what the buttons below mean, so they are
   // said once at the top rather than implied by a button behaving oddly.
@@ -555,7 +583,7 @@ void drawBoard(const State& state) {
           ImGui::TextColored(kMuted, "Beating it wins your side nothing.");
         }
       }
-      if (interactive()) {
+      if (interactive() && !closed) {
         if (ImGui::Button("Play this map")) pushCommand(Command::Kind::Play, tile.playUrl);
         ImGui::SameLine();
         if (board.selfReported()) {
@@ -570,6 +598,13 @@ void drawBoard(const State& state) {
             if (ImGui::Button(label.c_str())) {
               pushCommand(Command::Kind::Check, board.id, tile.idx, state.raceTimeMs);
             }
+          } else if (board.gameOnly()) {
+            // "Plugin and replay only" means the time comes from a run the
+            // game measured, or from the replay file on the website - never
+            // from a button. A mark with no time on it is exactly the typed-in
+            // claim that setting exists to rule out, so it is not offered.
+            ImGui::NewLine();
+            ImGui::TextColored(kMuted, "Finish this map to take it - the time comes from the game.");
           } else {
             // No finish in hand, so this marks the tile empty - and says so
             // rather than looking like the ordinary action. See the same note
@@ -593,6 +628,107 @@ void drawBoard(const State& state) {
       break;
     }
   }
+  if (closed) ImGui::PopStyleVar();
+}
+
+// --------------------------------------------------------------- the windows
+
+/**
+ * Where a window goes the first time, and remembering where it was dragged.
+ *
+ * Shared by the two panels. Placed once per session - after that the window
+ * owns its own position, so a drag is not fought by a SetNextWindowPos on the
+ * very next frame - and nudged back on screen if the resolution shrank since
+ * it was saved, because a panel parked off the edge looks exactly like the mod
+ * being broken.
+ */
+void placeWindow(bool& placed, float x, float y, float w, float h, ImVec2 fallbackPos, ImVec2 fallbackSize) {
+  ImGuiIO& io = ImGui::GetIO();
+  const float margin = 16.0f;
+  if (!placed) {
+    const bool saved = x >= 0 && y >= 0;
+    ImVec2 position = saved ? ImVec2(x, y) : fallbackPos;
+    const float width = w > 80 ? w : fallbackSize.x;
+    position.x = position.x < 0 ? margin
+                                : (position.x > io.DisplaySize.x - 60 ? io.DisplaySize.x - width - margin : position.x);
+    position.y = position.y < 0 ? margin : (position.y > io.DisplaySize.y - 40 ? margin : position.y);
+    ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+    placed = true;
+  }
+  const bool savedSize = w > 80 && h > 80;
+  ImGui::SetNextWindowSize(savedSize ? ImVec2(w, h) : fallbackSize, ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(200, 120), ImVec2(1600, 1600));
+  ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
+}
+
+/** Remembered when the drag ends rather than every frame: this writes a file. */
+void rememberWindow(float& x, float& y, float& w, float& h) {
+  const ImVec2 position = ImGui::GetWindowPos();
+  const ImVec2 size = ImGui::GetWindowSize();
+  if (interactive() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+      (position.x != x || position.y != y || size.x != w || size.y != h)) {
+    x = position.x;
+    y = position.y;
+    w = size.x;
+    h = size.y;
+    config().save();
+  }
+}
+
+// A title bar rather than a bare box: it is what you grab to move it and
+// what you click to fold it away, and it is the same shape as the settings
+// window, so there is one idea to learn instead of two.
+//
+// The scrollbar is always reserved, like the settings window's. Without it the
+// panel oscillates: content grows past the height, a scrollbar appears, the
+// bar narrows the wrap width of every TextWrapped in it, the text gets taller,
+// the bar is still needed - and on the frame it is not, the whole thing snaps
+// back. That reads as the widget shaking. Reserving the space means the wrap
+// width never changes from one frame to the next, which is the part that
+// actually stops it; a fixed height alone does not.
+//
+// Click-through until the panel is opened: while driving it is a readout, and
+// a window that eats the mouse in a racing game is a bug, not a feature. That
+// also means it can only be dragged with the window open, which is the only
+// time somebody means to move it.
+ImGuiWindowFlags panelFlags() {
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                           ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysVerticalScrollbar;
+  if (!interactive()) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+  return flags;
+}
+
+/**
+ * The bingo board, in a window of its own.
+ *
+ * It used to share one panel with the map readout, which meant a board big
+ * enough to show its screenshots pushed the map status off the bottom, and
+ * somebody playing for the project alone had a bingo-shaped panel. Two windows,
+ * each placed and sized on its own, and this one simply absent without a board.
+ */
+void drawBingoPanel(const State& state) {
+  // Placement on the first run after the split is decided in drawPanel,
+  // which runs first - see Config::bingoX.
+  Config& c = config();
+  static bool placed = false;
+  const float width = 260.0f * c.overlayScale;
+  placeWindow(placed, c.bingoX, c.bingoY, c.bingoW, c.bingoH, ImVec2(16.0f, 16.0f + 80.0f + 228.0f),
+              ImVec2(width, 360));
+  if (ImGui::Begin("Bingo###tmx-bingo", nullptr, panelFlags())) {
+    // The map under the wheels, as a tile - first, because while driving it is
+    // the one thing on this window that changes.
+    if (!state.hits.empty() || (state.inRace && state.raceState < 0)) {
+      drawHits(state);
+      if (state.board.loaded) ImGui::Separator();
+    }
+    if (state.board.loaded) drawBoard(state);
+    if (!state.bingoToast.empty()) {
+      ImGui::Separator();
+      ImGui::TextWrapped("%s", state.bingoToast.c_str());
+    }
+    rememberWindow(c.bingoX, c.bingoY, c.bingoW, c.bingoH);
+  }
+  ImGui::End();
 }
 
 void drawPanel(const State& state) {
@@ -600,56 +736,28 @@ void drawPanel(const State& state) {
   const float margin = 16.0f;
   const float width = 260.0f * config().overlayScale;
 
-  // Placed once per session: after that the window owns its own position, so a
-  // drag is not fought by a SetNextWindowPos on the very next frame. The saved
-  // position wins over the corner; the corner is only where it starts out.
-  static bool placed = false;
-  if (!placed) {
-    const bool saved = config().overlayX >= 0 && config().overlayY >= 0;
-    ImVec2 position = saved ? ImVec2(config().overlayX, config().overlayY)
-                            : ImVec2(config().overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin,
-                                     margin + 80.0f);
-    // Nudged back on screen if the resolution shrank since it was saved -
-    // a panel parked off the edge would look exactly like the mod being broken.
-    position.x = position.x < 0 ? margin : (position.x > io.DisplaySize.x - 60 ? io.DisplaySize.x - width - margin : position.x);
-    position.y = position.y < 0 ? margin : (position.y > io.DisplaySize.y - 40 ? margin : position.y);
-    ImGui::SetNextWindowPos(position, ImGuiCond_Always);
-    placed = true;
+  // The map panel after the split: the old single panel's geometry went to the
+  // board (drawBingoPanel), so on that first run this one starts beside it at
+  // a size that fits what is left in it.
+  Config& c = config();
+  const bool showBoard = !c.board.empty() && state.board.loaded;
+  if (!c.board.empty() && c.bingoW <= 0 && c.overlayW > 80 && c.overlayX >= 0) {
+    c.bingoX = c.overlayX;
+    c.bingoY = c.overlayY;
+    c.bingoW = c.overlayW;
+    c.bingoH = c.overlayH;
+    c.overlayX = c.overlayX + c.overlayW + 8.0f;
+    c.overlayW = width;
+    c.overlayH = 220.0f;
+    c.save();
   }
-  // Sized once, then the window owns it: drag the corner, and a board dragged
-  // wide enough starts showing the maps instead of their numbers.
-  const bool savedSize = config().overlayW > 80 && config().overlayH > 80;
-  ImGui::SetNextWindowSize(savedSize ? ImVec2(config().overlayW, config().overlayH) : ImVec2(width, 340),
-                           ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSizeConstraints(ImVec2(220, 180), ImVec2(1600, 1600));
-  ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
 
-  // A title bar rather than a bare box: it is what you grab to move it and
-  // what you click to fold it away, and it is the same shape as the settings
-  // window, so there is one idea to learn instead of two.
-  //
-  // The scrollbar is always reserved, like the settings window's. Without it the
-  // panel oscillates: content grows past the height, a scrollbar appears, the
-  // bar narrows the wrap width of every TextWrapped in it, the text gets taller,
-  // the bar is still needed - and on the frame it is not, the whole thing snaps
-  // back. That reads as the widget shaking. Reserving the space means the wrap
-  // width never changes from one frame to the next, which is the part that
-  // actually stops it; a fixed height alone does not.
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                           ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysVerticalScrollbar;
-  // Click-through until the panel is opened: while driving it is a readout, and
-  // a window that eats the mouse in a racing game is a bug, not a feature. That
-  // also means it can only be dragged with the window open, which is the only
-  // time somebody means to move it.
-  if (!interactive()) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
-
-  // The title follows the panel: somebody playing for the project alone turned
-  // the board off, and a bar that still says "+ Bingo" over a panel with no
-  // board on it reads as the setting not having taken. The `###` id is the
-  // same either way, so the window keeps its position and size across the
-  // change rather than jumping back to the corner.
-  const bool showBoard = !config().board.empty() && state.board.loaded;
-  if (ImGui::Begin(showBoard ? "100% TMX + Bingo###tmx-panel" : "100% TMX###tmx-panel", nullptr, flags)) {
+  static bool placed = false;
+  placeWindow(placed, c.overlayX, c.overlayY, c.overlayW, c.overlayH,
+              ImVec2(c.overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin, margin + 80.0f),
+              ImVec2(width, 220));
+  const ImGuiWindowFlags flags = panelFlags();
+  if (ImGui::Begin("100% TMX###tmx-panel", nullptr, flags)) {
     // A browser asking to be let in. At the very top of the panel and not
     // behind F9, because the person who needs to answer it is looking at the
     // game, and a question they cannot find is a question that never gets
@@ -669,30 +777,19 @@ void drawPanel(const State& state) {
     }
 
     drawMapBlock(state);
-    if (showBoard) {
-      ImGui::Separator();
-      drawBoard(state);
-    }
 
     if (!state.toast.empty()) {
       ImGui::Separator();
       ImGui::TextWrapped("%s", state.toast.c_str());
     }
 
-    // Remembered when the drag ends rather than every frame: this writes a file.
-    const ImVec2 position = ImGui::GetWindowPos();
-    const ImVec2 size = ImGui::GetWindowSize();
-    if (interactive() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
-        (position.x != config().overlayX || position.y != config().overlayY || size.x != config().overlayW ||
-         size.y != config().overlayH)) {
-      config().overlayX = position.x;
-      config().overlayY = position.y;
-      config().overlayW = size.x;
-      config().overlayH = size.y;
-      config().save();
-    }
+    rememberWindow(c.overlayX, c.overlayY, c.overlayW, c.overlayH);
   }
   ImGui::End();
+
+  // Shown for a selected board, and for a map that is a tile on a board that
+  // is not the one selected - that tile still wants its time.
+  if (showBoard || !state.hits.empty()) drawBingoPanel(state);
 }
 
 // --------------------------------------------------------------- the settings
@@ -725,6 +822,15 @@ void drawSettings(const State& state) {
           pushCommand(Command::Kind::SelectBoard, "");
         }
         ImGui::Separator();
+        // The picker lists running boards only, so a board that ended while it
+        // was selected would vanish from here and stay on the panel.
+        if (!noneSelected && state.board.loaded && state.board.id == config().board && state.board.closed()) {
+          ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+          const std::string label = (state.board.title.empty() ? state.board.id : state.board.title) +
+                                    "  (closed " + state.board.endsAt.substr(0, 10) + ")";
+          ImGui::RadioButton(label.c_str(), true);
+          ImGui::PopStyleVar();
+        }
         for (const BoardSummary& board : state.boards) {
           const bool selected = board.id == config().board;
           // Teams are worth knowing before the board is opened - and "no side
@@ -788,42 +894,11 @@ void drawSettings(const State& state) {
         ImGui::Separator();
         ImGui::TextColored(kWarn, "%s", state.linkError.c_str());
       }
-      ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Settings")) {
-      bool autoSubmit = config().autoSubmitSelfReported;
-      if (ImGui::Checkbox("Put my finish straight onto self-reported boards", &autoSubmit)) {
-        config().autoSubmitSelfReported = autoSubmit;
-        config().save();
-      }
-      ImGui::TextWrapped(
-          "Only on a board set to \"no check\" or \"plugin and replay only\", and only when the run would actually "
-          "take the tile. Every other board takes a tile by a replay on TMX, which the site goes and reads - nothing "
-          "here can change that.");
       ImGui::Separator();
+      ImGui::TextColored(kMine, "Replay uploader");
 
-      bool share = config().shareWhatIAmPlaying;
-      if (ImGui::Checkbox("Share what I am playing", &share)) {
-        config().shareWhatIAmPlaying = share;
-        config().save();
-        // Switching it off is not only about future requests: whatever is
-        // standing now should go too.
-        pushCommand(share ? Command::Kind::ReportNow : Command::Kind::ReleaseAll);
-      }
-      // Not two hours. That is what the *website's* button means - somebody
-      // saying they will be at this for the evening - and the mark this sends
-      // is the opposite: the game saying "right now", renewed every minute and
-      // gone a few minutes after the game is. Saying two hours here described
-      // a different feature and made a switched-off PC look like a player.
-      ImGui::TextColored(kMuted,
-                         "Sends the map's UID and nothing else. The remaining\n"
-                         "list shows you on it while you are there, and drops\n"
-                         "you a few minutes after you stop.");
-
-      ImGui::Separator();
-
-      // The replay bridge. Its own block rather than a line in the list above,
+      // The replay bridge - on the Connection tab since 0.9.2, beside the
+      // website link, because it is the other thing this machine connects to. Its own block rather than a line in the list above,
       // because it is the only switch here that opens a socket, and somebody
       // turning it on should be able to read what that means without leaving
       // the window.
@@ -884,6 +959,39 @@ void drawSettings(const State& state) {
           ImGui::TextColored(kMuted, "Searching Documents\\TrackMania and Documents\\TmForever.");
         }
       }
+
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Settings")) {
+      bool autoSubmit = config().autoSubmitSelfReported;
+      if (ImGui::Checkbox("Put my finish straight onto self-reported boards", &autoSubmit)) {
+        config().autoSubmitSelfReported = autoSubmit;
+        config().save();
+      }
+      ImGui::TextWrapped(
+          "Only on a board set to \"no check\" or \"plugin and replay only\", and only when the run would actually "
+          "take the tile. Every other board takes a tile by a replay on TMX, which the site goes and reads - nothing "
+          "here can change that.");
+      ImGui::Separator();
+
+      bool share = config().shareWhatIAmPlaying;
+      if (ImGui::Checkbox("Share what I am playing", &share)) {
+        config().shareWhatIAmPlaying = share;
+        config().save();
+        // Switching it off is not only about future requests: whatever is
+        // standing now should go too.
+        pushCommand(share ? Command::Kind::ReportNow : Command::Kind::ReleaseAll);
+      }
+      // Not two hours. That is what the *website's* button means - somebody
+      // saying they will be at this for the evening - and the mark this sends
+      // is the opposite: the game saying "right now", renewed every minute and
+      // gone a few minutes after the game is. Saying two hours here described
+      // a different feature and made a switched-off PC look like a player.
+      ImGui::TextColored(kMuted,
+                         "Sends the map's UID and nothing else. The remaining\n"
+                         "list shows you on it while you are there, and drops\n"
+                         "you a few minutes after you stop.");
 
       ImGui::Separator();
       bool overlayOn = config().overlay;
@@ -951,6 +1059,7 @@ void drawSettings(const State& state) {
       // player takes a wrong turn, and this says which turn.
       if (state.raceState >= 0) {
         ImGui::Text("Race state: %d  time %d ms", state.raceState, state.raceTimeMs);
+        if (!state.finishProbe.empty()) ImGui::Text("Player info: %s", state.finishProbe.c_str());
       } else if (state.inRace) {
         ImGui::TextColored(kWarn, "Race state: unreadable - stops at %s", raceStepName(state.raceStep));
         ImGui::TextWrapped(

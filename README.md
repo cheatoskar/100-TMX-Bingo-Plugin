@@ -27,7 +27,8 @@ this one, and what is it worth?
 **Bingo**
 
 - **Every board you are in**, weekly and private, in a picker. Choose one and
-  the panel keeps it on screen while you drive.
+  the **Bingo** window keeps it on screen while you drive. A board that has
+  ended is greyed out and says so, rather than looking live and ignoring you.
 - **The grid, colour-coded** — yours, somebody else's, still open — with the
   tile you are standing on outlined.
 - **The time to beat** on every tile, and who holds it. No alt-tabbing to check
@@ -40,10 +41,11 @@ this one, and what is it worth?
 - **"I uploaded it"**: after you put the replay on TMX, one button asks the site
   to check the tile. The site reads TMX and believes only that.
 - **On a self-reported board**, where the site checks nothing, the overlay puts
-  the run you just finished straight onto the tile. On by default, one switch in
-  Settings to make it a button instead. Only there; see below — and see
-  [When a tile is filled in](#when-a-tile-is-filled-in) for *when*, which is not
-  always the instant you cross the line.
+  the run you just finished straight onto the tile, the moment you cross the
+  line. On by default, one switch in Settings to make it a button instead. Only
+  there; see [When a tile is filled in](#when-a-tile-is-filled-in).
+- **Plugin and replay only** boards take the time the game measured and nothing
+  else, so there is no "take without a time" button on them - finish the map.
 
 The boards themselves live on the website — drawn weekly, or built privately
 for an evening — and the panel is a window onto the same board everybody else
@@ -72,9 +74,13 @@ is playing.
 
 **Everything else**
 
-- **Settings in-game** (F9): connect or disconnect, the sharing switch, and how
-  the panel behaves. The panel itself is dragged and resized directly - big
-  enough and the tiles become the maps' own screenshots.
+- **Two windows, placed separately.** **100% TMX** is the project: is this map
+  open, what it is worth, did somebody just beat it, your replay's upload.
+  **Bingo** is the board: the tile you are on, the time to beat, the grid. Each
+  is dragged and resized on its own - big enough and the tiles become the maps'
+  own screenshots - and the Bingo one is not there without a board.
+- **Settings in-game** (F9): connect or disconnect, the replay uploader, the
+  sharing switch, and how the windows behave.
 - **Nothing is sent until you say so.** Connecting a machine is one deliberate
   act; sharing what you play is a separate question, asked once, right after.
 - **Nothing is written to the game.** The mod only reads, and it never patches,
@@ -321,17 +327,18 @@ immediately.
 
 | Key | Does |
 |---|---|
-| **F9** | open/close the window (and makes the panel clickable and draggable) |
+| **F9** | open/close the settings window (and makes both panels clickable and draggable) |
 
-While the window is closed the panel is a read-out and clicks go to the game, so
-it cannot get in the way of a run.
+While the window is closed the panels are a read-out and clicks go to the game,
+so they cannot get in the way of a run.
 
-**Boards** tab: pick the board the panel shows.
-**Connection** tab: connect, disconnect, or see the pending code.
+**Bingo** tab: pick the board the Bingo window shows.
+**Connection** tab: connect, disconnect, or see the pending code - and the
+replay uploader, which is the other thing this machine connects to.
 ![The Settings tab](images/SettingsModalIngame.png)
 
-**Settings** tab: sharing, panel size and opacity. The panel itself is dragged
-with the window open.
+**Settings** tab: auto-submit, sharing, panel size and opacity. The panels
+themselves are dragged with the window open.
 **Status** tab: your game build, whether the offsets were recognised, the UID of
 the loaded map, and the last thing the mod did. Quote this tab in bug reports.
 
@@ -343,37 +350,26 @@ machine entirely.
 ## When a tile is filled in
 
 On a board that takes the time the game measured - *no check* or *plugin and
-replay only* - the overlay can put your run on the tile without you pressing
-anything. It waits for proof that the run actually finished, and there are two
-kinds. Whichever arrives first is the one that counts.
+replay only* - the overlay puts your run on the tile without you pressing
+anything, **the moment you cross the line**. Record or not, first run or tenth.
 
-| What proves it | When the tile is filled in |
-|---|---|
-| TrackMania wrote a replay | **Straight away**, about a second after the line |
-| The clock restarted from zero | When you press **retry**, or start the map again |
+It reads the game's own "this run is over" state - the field TrackMania flips
+when you cross the finish, on the same object its race clock lives in (laid out
+in [TMInterface](https://github.com/donadigo/TMInterfaceClientPython)'s
+`PlayerInfoStruct` and read the same way by
+[Twinkie](https://github.com/flownyy/Twinkie)). Pressing Escape does not flip
+it, so a pause at a checkpoint is never mistaken for a finish, and nothing is
+put on a board that nobody drove.
 
-The first covers most of a bingo evening: the game autosaves a replay whenever
-a run beats your own record on that map, and a tile is usually a map you have
-never driven, so your finish is a record by definition.
+A run that beats your best on the map also moves the game's best time, and the
+mod watches that too, so even a finish it somehow did not see as it happened is
+caught the moment it looks again.
 
-The second is for the rest - a second or third run that does not beat your own
-best writes no replay, and then the tile is taken the moment you **press retry
-on the results screen** (or load the map again). A second or two late, and the
-panel says so while it waits.
+Only if that state cannot be read - an unrecognised build - does it fall back
+to the old proofs: the replay TrackMania autosaves on a record, or the clock
+restarting from zero when you retry.
 
-**Why it waits at all.** The race clock stops when you cross the line and it
-also stops when you press Escape, and on this game nothing readable tells the
-two apart at that moment. Two things tell them apart afterwards: a paused run
-is resumed and the clock carries on from where it stopped, while a finished
-one is followed by a new run counting from zero - and a pause never writes a
-replay. So the panel says "Clock stopped at 13.91" until one of those lands,
-and "Finished in 13.91" after. It will not congratulate you at a checkpoint,
-and it will not put a time nobody drove on somebody's board.
-
-**The one case it misses:** finishing a run that does not beat your record and
-then leaving straight to the menu, without retrying. Nothing ever proves that
-one, so the tile is not taken automatically - the button in the panel is still
-there, and it is one click.
+---
 
 ---
 
@@ -388,7 +384,7 @@ the problem. **Nothing here ever holds your TMX login.**
 
 What the mod can do is hand the file over:
 
-1. In Settings, tick **Upload my replays through the browser**. The mod
+1. On the **Connection** tab, tick **Upload my replays through the browser**. The mod
    generates a pairing key and starts listening on `127.0.0.1:27311` (or the
    next free port up to 27315).
 2. Install the

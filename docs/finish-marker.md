@@ -1,5 +1,30 @@
 # Finding the marker that says "this run is over"
 
+> **Resolved in 0.9.2 (2026-09-23), without Cheat Engine.** The marker is
+> `race_state` at `+0x314` of the local CTrackManiaPlayerInfo - 0 before the
+> start, 1 running, 2 finished - with `race_finished` at `+0x33C` and the race
+> clock `race_time` at `+0x2B0` of the same object. TMInterface's
+> `PlayerInfoStruct` publishes the layout; Twinkie's GrindingStats counts
+> finishes off the same field. Tested live: a pause at a checkpoint leaves it at
+> 1, the finish line flips it to 2 in the same tick, on record and non-record
+> runs alike.
+>
+> Every "it reads 0 while driving" below was the **wrong object**:
+> `resolvePlayerSub` accepted any memory whose fields happened to be small,
+> zeros included. The fix is identity - an object is only believed when its
+> `+0x2B0` is the very address the calibrated clock was read from.
+>
+> Two more things it took to make it reliable. The mod reads the game on a
+> thread of its own and queues each finish, and the best time moving is a
+> second proof for a finish that was not seen as it happened. And the log is
+> written from a thread of its own: appending one line to
+> `Documents\100TMX\log.txt` measured **10-22 seconds** right after a record
+> finish on this machine, and with the write inline that stalled the finish
+> watcher through the whole results screen.
+>
+> The rest of this document is the plan as it stood before, kept for the
+> reasoning.
+
 Written 2026-09-20, after four attempts at inferring it. **A plan, not a
 description of anything that works yet.**
 

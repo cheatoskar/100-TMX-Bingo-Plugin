@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cwchar>
 #include <cwctype>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -526,7 +527,9 @@ bool isValidSub(uintptr_t sub, uintptr_t* outTimeOff, uintptr_t* outStateOff, in
   uintptr_t vt = deref(sub);
   if (!plausible(vt)) return false;
 
-  for (uintptr_t toff : {0x2BCu, 0x2B0u}) {
+  // race_time (0x2B0) before lap_time (0x2BC): the lap clock restarts every
+  // lap, so on a multi-lap map it would report one lap as the whole run.
+  for (uintptr_t toff : {0x2B0u, 0x2BCu}) {
     int t = -1;
     if (readAt<int>(sub + toff, &t) && t >= 0 && t <= kMaxRaceMs) {
       for (uintptr_t soff : {0x314u, 0x320u}) {
@@ -721,7 +724,244 @@ void logFinishCandidates(int officialState) {
   log::line("game: player_state -> %d", officialState);
 }
 
+/**
+ * The game's own "this run is over", read off the right object this time.
+ *
+ * The local player's CTrackManiaPlayerInfo is laid out in TMInterface's
+ * `PlayerInfoStruct` (donadigo, same Jan-2011 TmForever build), and Twinkie's
+ * GrindingStats counts finishes off the same object: `race_state` at 0x314 is
+ * 0 before the start, 1 running, 2 finished - and a pause leaves it at 1. The
+ * race clock the calibration found is `race_time` at 0x2B0 of that object,
+ * which is how the two sources and this machine agree on the layout.
+ *
+ * Every earlier attempt read 0x314 off whatever `resolvePlayerSub` settled on,
+ * and that walk accepts any block of memory whose fields happen to be small -
+ * zeros included. So "player_state reads 0 while driving" was a zero from the
+ * wrong object, and "the checkpoint counter reads 1 at the start" likely the
+ * same. The fix is identity, not another offset: an object is only believed
+ * if its +0x2B0 *is* the address the calibrated clock was just read from.
+ */
+const uintptr_t kPiRaceTime = 0x2B0;
+const uintptr_t kPiPrevRaceTime = 0x2A8;
+const uintptr_t kPiBestTime = 0x2B4;
+const uintptr_t kPiNbCompleted = 0x2C8;
+const uintptr_t kPiCurCheckpoint = 0x2D8;
+const uintptr_t kPiRaceState = 0x314;
+const uintptr_t kPiLapCpCount = 0x330;
+const uintptr_t kPiCpCount = 0x334;
+const uintptr_t kPiRaceFinished = 0x33C;
+const uintptr_t kPiFinishNotPassed = 0x344;
+
+struct PlayerFields {
+  int raceTime = -1, prevRaceTime = -1, bestTime = -1, nbCompleted = -1, curCheckpoint = -1;
+  int raceState = -1, lapCpCount = -1, cpCount = -1, raceFinished = -1, finishNotPassed = -1;
+  bool operator!=(const PlayerFields& o) const {
+    return memcmp(this, &o, sizeof(PlayerFields)) != 0;
+  }
+};
+
+uintptr_t g_playerInfo = 0;            // verified this tick, 0 when none
+const char* g_playerInfoVia = "";
+int g_lastRaceState = -1;
+bool g_sawRunning = false;              // race_state was 1 since the last finish
+int g_gameFinishMs = 0;                 // held while race_state stays 2
+PlayerFields g_lastFields;
+bool g_haveFields = false;              // g_lastFields is a real reading of this map
+std::string g_fieldsUid;
+std::string g_finishProbe;
+
+// Every finish, latched. The worker that acts on them also talks to the
+// website, and a slow request there once stalled it through an entire
+// results screen - a finish that is only *visible* while race_state reads 2
+// was simply gone by the time it looked again. A queue cannot be missed.
+std::mutex g_finishLock;
+std::deque<FinishEvent> g_finishes;
+std::string g_lastFinishUid;
+int g_lastFinishMs = -1;
+
+void pushFinish(const std::string& uid, int ms, const char* how) {
+  if (uid == g_lastFinishUid && ms == g_lastFinishMs) return;  // one run, one event
+  g_lastFinishUid = uid;
+  g_lastFinishMs = ms;
+  std::lock_guard<std::mutex> guard(g_finishLock);
+  g_finishes.push_back({uid, ms, how});
+  if (g_finishes.size() > 16) g_finishes.pop_front();
+}
+
+// Held for the whole of read() and by the calibration calls, which walk the
+// same globals and now run on a different thread from the reads.
+std::mutex g_readLock;
+
+/** Only an object whose race clock is the one just read counts as the player's. */
+uintptr_t verifiedPlayerInfo(uintptr_t app, uintptr_t race, uintptr_t clockAddress) {
+  if (!clockAddress) return 0;
+  auto ok = [&](uintptr_t pi) { return plausible(pi) && pi + kPiRaceTime == clockAddress && plausible(deref(pi)); };
+
+  // The calibrated chain itself, when it ends on race_time.
+  if (ok(clockAddress - kPiRaceTime)) {
+    g_playerInfoVia = "clock chain";
+    return clockAddress - kPiRaceTime;
+  }
+  if (plausible(race)) {
+    // Twinkie / brokenphilip: race -> player info nod (0x330) -> player (0x238) -> 0x1C.
+    const uintptr_t nod = deref(race + 0x330);
+    const uintptr_t player = plausible(nod) ? deref(nod + 0x238) : 0;
+    const uintptr_t pi = plausible(player) ? deref(player + 0x1C) : 0;
+    if (ok(pi)) {
+      g_playerInfoVia = "race+0x330/0x238/0x1C";
+      return pi;
+    }
+    // The chain this machine verified by hand.
+    const uintptr_t p1 = deref(race + 0x28);
+    const uintptr_t p2 = plausible(p1) ? deref(p1) : 0;
+    const uintptr_t pi2 = plausible(p2) ? deref(p2 + 0x1C) : 0;
+    if (ok(pi2)) {
+      g_playerInfoVia = "race+0x28/0x0/0x1C";
+      return pi2;
+    }
+  }
+  // Online: Twinkie reads the network's player-info buffer (CFastBuffer: size,
+  // then pointer) at app+0x12C -> +0x2FC, and takes the first entry.
+  const uintptr_t net = deref(app + 0x12C);
+  if (plausible(net)) {
+    const uintptr_t items = deref(net + 0x2FC + 4);
+    const uintptr_t nod = plausible(items) ? deref(items) : 0;
+    const uintptr_t player = plausible(nod) ? deref(nod + 0x238) : 0;
+    const uintptr_t pi = plausible(player) ? deref(player + 0x1C) : 0;
+    if (ok(pi)) {
+      g_playerInfoVia = "network buffer";
+      return pi;
+    }
+  }
+  return 0;
+}
+
+PlayerFields readPlayerFields(uintptr_t pi) {
+  PlayerFields f;
+  readAt<int>(pi + kPiRaceTime, &f.raceTime);
+  readAt<int>(pi + kPiPrevRaceTime, &f.prevRaceTime);
+  readAt<int>(pi + kPiBestTime, &f.bestTime);
+  readAt<int>(pi + kPiNbCompleted, &f.nbCompleted);
+  readAt<int>(pi + kPiCurCheckpoint, &f.curCheckpoint);
+  readAt<int>(pi + kPiRaceState, &f.raceState);
+  readAt<int>(pi + kPiLapCpCount, &f.lapCpCount);
+  readAt<int>(pi + kPiCpCount, &f.cpCount);
+  readAt<int>(pi + kPiRaceFinished, &f.raceFinished);
+  readAt<int>(pi + kPiFinishNotPassed, &f.finishNotPassed);
+  return f;
+}
+
+/**
+ * One tick of the finish watch. Returns the finished time while the game says
+ * the run is over, 0 otherwise.
+ *
+ * A finish is race_state going 1 -> 2 and nothing less: at map load the field
+ * can already read 2 with the clock near zero (seen in the log at 190 ms), so
+ * a 2 that was never preceded by a run on this object is not a finish.
+ *
+ * Every field that moves is logged beside the clock - that log is the test.
+ * Finish, pause, respawn, restart, a lap map: the lines say which field did
+ * what, so nothing here has to be taken on trust from another build.
+ */
+int watchFinish(uintptr_t pi, const std::string& uid) {
+  if (pi != g_playerInfo) {
+    if (pi) log::line("game: player info at %p via %s (race_time = the calibrated clock)", (void*)pi, g_playerInfoVia);
+    else if (g_playerInfo) log::line("game: player info lost");
+    g_playerInfo = pi;
+    g_lastRaceState = -1;
+    g_sawRunning = false;
+    g_gameFinishMs = 0;
+    g_lastFields = PlayerFields();
+    g_haveFields = false;
+  }
+  if (!pi) {
+    g_finishProbe = "player info: not verified";
+    return 0;
+  }
+
+  const PlayerFields f = readPlayerFields(pi);
+  if (uid != g_fieldsUid) {
+    // Another map on the same object: its best time is that map's, not a
+    // finish on this one.
+    g_fieldsUid = uid;
+    g_haveFields = false;
+  }
+
+  /*
+   * The backup: a finish seen late, by the best time it left behind.
+   *
+   * The best on this map only ever moves when a run crosses the line faster
+   * than any before it - which is exactly the finish the flag below can miss
+   * if nothing was looking for the few seconds it read 2. Tested 2026-09-23:
+   * a first finish on a fresh map went unseen, and the next reading already
+   * had best -1 -> 15640. Only an improvement counts, and only against a
+   * reading of this same map, so loading a map with a record is not a finish.
+   */
+  if (g_haveFields && f.bestTime > 0 && (g_lastFields.bestTime <= 0 || f.bestTime < g_lastFields.bestTime) &&
+      f.bestTime <= kMaxRaceMs) {
+    if (!(uid == g_lastFinishUid && f.bestTime == g_lastFinishMs)) {
+      log::line("game: FINISH on %s seen late - the best time moved %d -> %d ms", uid.c_str(),
+                g_lastFields.bestTime, f.bestTime);
+      pushFinish(uid, f.bestTime, "new best");
+    }
+  }
+
+  // race_time moves every tick; only log when something *else* changed.
+  PlayerFields a = f, b = g_lastFields;
+  a.raceTime = b.raceTime = 0;
+  if (a != b) {
+    log::line("game: pi state=%d finished=%d nb_completed=%d prev=%d best=%d cp=%d lapcp=%d cpcount=%d fnp=%d | clock %d ms",
+              f.raceState, f.raceFinished, f.nbCompleted, f.prevRaceTime, f.bestTime, f.curCheckpoint, f.lapCpCount,
+              f.cpCount, f.finishNotPassed, f.raceTime);
+  }
+  g_lastFields = f;
+  g_haveFields = true;
+
+  char probe[160];
+  sprintf_s(probe, sizeof(probe), "state %d  finished %d  completed %d  cp %d  (%s)", f.raceState, f.raceFinished,
+            f.nbCompleted, f.curCheckpoint, g_playerInfoVia);
+  g_finishProbe = probe;
+
+  if (f.raceState == 1) {
+    g_sawRunning = true;
+    g_gameFinishMs = 0;
+  } else if (f.raceState == 2) {
+    if (g_lastRaceState != 2 && g_sawRunning && f.raceTime > 0) {
+      g_gameFinishMs = f.raceTime;
+      g_sawRunning = false;
+      log::line("game: FINISH on %s - race_state 1 -> 2 at %d ms (finished=%d nb_completed=%d prev=%d)", uid.c_str(),
+                f.raceTime, f.raceFinished, f.nbCompleted, f.prevRaceTime);
+      pushFinish(uid, f.raceTime, "race_state");
+    }
+  } else {
+    g_gameFinishMs = 0;
+  }
+  g_lastRaceState = f.raceState;
+  return g_gameFinishMs;
+}
+
+bool popFinish(FinishEvent* out) {
+  std::lock_guard<std::mutex> guard(g_finishLock);
+  if (g_finishes.empty()) return false;
+  *out = g_finishes.front();
+  g_finishes.pop_front();
+  return true;
+}
+
+namespace {
+// Why the last read stopped short, logged only when it changes. A finish that
+// went unseen is either a thread that was not looking or a read that could
+// not get through - and this is what tells the two apart in the log.
+void noteShort(const char* why) {
+  static std::string s_last;
+  if (s_last == why) return;
+  s_last = why;
+  if (*why) log::line("game: read stopped short - %s", why);
+}
+}  // namespace
+
 Snapshot read() {
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   Snapshot snap;
 
   Offsets o;
@@ -744,6 +984,7 @@ Snapshot read() {
     // The pointer was there but the string was not. Report menus rather than a
     // half-truth - the site is never told about a map we cannot name.
     snap.uid.clear();
+    noteShort("the map UID did not read");
     return snap;
   }
 
@@ -759,6 +1000,7 @@ Snapshot read() {
   uintptr_t race = deref(app + o.race);
   if (!plausible(race)) {
     snap.raceStep = 1;
+    noteShort("no race object");
     return snap;
   }
   // The map's own checkpoint count, which needs nothing from the player: the
@@ -833,7 +1075,19 @@ Snapshot read() {
   // 0. The calibrated chain, if this build has been taught one. It is checked
   //    first and, when it answers, nothing below runs: it is the only reading
   //    here that was ever verified against what the game displayed.
+  noteShort("");
   const int calibrated = calibratedTime(app);
+  const uintptr_t playerInfo = calibrated >= 0 ? verifiedPlayerInfo(app, race, g_timeAddress) : 0;
+  snap.gameFinishMs = watchFinish(playerInfo, snap.uid);
+  snap.playerInfoVerified = playerInfo != 0;
+  snap.finishProbe = g_finishProbe;
+  if (playerInfo) {
+    // The state and the checkpoints from the object the clock lives in, not
+    // from the guessed walk above.
+    int state = -1, passed = -1;
+    if (readAt<int>(playerInfo + kPiRaceState, &state)) resolvedState = state;
+    if (readAt<int>(playerInfo + kPiLapCpCount, &passed) && passed >= 0 && passed < 1000) snap.checkpoint = passed;
+  }
   if (calibrated >= 0) {
     snap.raceTimeMs = calibrated;
     snap.stateTrusted = true;
@@ -891,9 +1145,21 @@ Snapshot read() {
     // finish across to it.
     snap.confirmedFinishMs = (!g_confirmedUid.empty() && g_confirmedUid == snap.uid) ? g_confirmedFinishMs : 0;
 
-    if (calibrated <= 100) {
+    if (playerInfo && resolvedState >= 0 && resolvedState <= 2) {
+      // The game's own word, from the object the clock lives in. Tested
+      // 2026-09-23: a pause at a checkpoint leaves it at 1, the finish line
+      // flips it to 2 in the same tick. So a stopped clock means nothing
+      // here - and neither does the clock-restart guess, which reads
+      // "pause, then restart" as a finish at the paused time.
+      snap.confirmedFinishMs = 0;
+      if (resolvedState == 2) snap.state = RaceState::Finished;
+      else if (resolvedState == 0 || calibrated <= 100) snap.state = RaceState::BeforeStart;
+      else snap.state = RaceState::Running;
+    } else if (calibrated <= 100) {
       snap.state = RaceState::BeforeStart;
-    } else if (resolvedState == 2 || frozen) {
+    } else if (frozen) {
+      // No verified player object: the old rule, with its known false
+      // positive (a pause). Nothing automatic acts on it without a proof.
       snap.state = RaceState::Finished;
     } else {
       snap.state = RaceState::Running;
@@ -1056,6 +1322,7 @@ const scan::Chain* shortest(const std::vector<scan::Chain>& chains) {
 }  // namespace
 
 bool calibrateFromAddress(uintptr_t address) {
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   const uintptr_t app = appPointer();
   if (!app) {
     g_calibNote = "Load a map first - there is nothing to search from in the menus.";
@@ -1075,6 +1342,7 @@ bool calibrateFromAddress(uintptr_t address) {
 }
 
 bool calibrateByTime(int milliseconds) {
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   if (milliseconds <= 0) {
     g_calibNote = "Give the time the game showed, like 13.91.";
     return false;
@@ -1139,6 +1407,7 @@ CalibrationState calibration() {
 }
 
 void forgetCalibration() {
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   g_timeChain = scan::Chain();
   g_timeChainLoaded = true;
   g_calibCandidates.clear();

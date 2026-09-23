@@ -40,6 +40,15 @@ struct Config {
   float overlayW = 0.0f;
   float overlayH = 0.0f;
   /**
+   * The bingo board's own window, since 0.9.2. Unset (-1 / 0) means it has
+   * never been placed, and it then takes over the old single panel's place -
+   * the board was most of that panel, so that is where somebody expects it.
+   */
+  float bingoX = -1.0f;
+  float bingoY = -1.0f;
+  float bingoW = 0.0f;
+  float bingoH = 0.0f;
+  /**
    * When the panel takes the mouse.
    *
    * 0 automatic - it takes the mouse while the game is showing a cursor, which

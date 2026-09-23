@@ -96,7 +96,30 @@ struct Snapshot {
    * every 250 ms cannot miss it.
    */
   int confirmedFinishMs = 0;
+  /**
+   * The game's own finish: race_state went 1 -> 2 on the player-info object
+   * whose race_time is the calibrated clock. Set the moment the line is
+   * crossed and held while the results screen is up; 0 otherwise.
+   */
+  int gameFinishMs = 0;
+  /** Whether that object was found and verified this tick. */
+  bool playerInfoVerified = false;
+  /** One line of its fields, for the Status tab while this is being tested. */
+  std::string finishProbe;
 };
+
+/** One finished run, as the game reported it. */
+struct FinishEvent {
+  std::string uid;
+  int ms = 0;
+  const char* how = "";   // "race_state" at the line, or "new best" seen late
+};
+
+/**
+ * The next finish not yet taken, in order. Finishes are latched as read()
+ * sees them, so one that happened while nobody was asking is still here.
+ */
+bool popFinish(FinishEvent* out);
 
 // The built-in profiles, plus whatever the ini added.
 const std::vector<Offsets>& profiles();

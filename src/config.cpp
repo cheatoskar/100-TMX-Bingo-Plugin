@@ -98,6 +98,10 @@ void Config::load() {
       else if (key == "input") panelInput = atoi(value.c_str());
       else if (key == "x") overlayX = static_cast<float>(atof(value.c_str()));
       else if (key == "y") overlayY = static_cast<float>(atof(value.c_str()));
+      else if (key == "bingo_x") bingoX = static_cast<float>(atof(value.c_str()));
+      else if (key == "bingo_y") bingoY = static_cast<float>(atof(value.c_str()));
+      else if (key == "bingo_w") bingoW = static_cast<float>(atof(value.c_str()));
+      else if (key == "bingo_h") bingoH = static_cast<float>(atof(value.c_str()));
       else if (key == "board") board = value;
       else if (key == "bridge") bridge = asBool(value, bridge);
       else if (key == "bridge_key") bridgeKey = value;
@@ -154,6 +158,10 @@ void Config::save() const {
        << "y = " << overlayY << "\n"
        << "w = " << overlayW << "\n"
        << "h = " << overlayH << "\n"
+       << "bingo_x = " << bingoX << "\n"
+       << "bingo_y = " << bingoY << "\n"
+       << "bingo_w = " << bingoW << "\n"
+       << "bingo_h = " << bingoH << "\n"
        << "input = " << panelInput << "\n"
        << "board = " << board << "\n"
        << "toggle_key = " << toggleKey << "\n"
