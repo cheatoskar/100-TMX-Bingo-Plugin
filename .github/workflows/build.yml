@@ -103,6 +103,35 @@ jobs:
           copy build\tmx_version.h out\
           copy README.md out\
 
+      # A fingerprint of every file, so anybody can check that what they
+      # downloaded is byte for byte what this build produced - the honest answer
+      # to "a scanner flagged it, is it really yours?". Written twice: as
+      # SHA256SUMS.txt next to the files, and as a table at the top of the
+      # release notes, where people actually look.
+      - name: Hashes
+        shell: pwsh
+        run: |
+          $files = "100TMX-Installer.exe", "100TMX.dll", "100TMX.asi", "tmx_version.h"
+          $sums = foreach ($f in $files) {
+            $h = (Get-FileHash "out/$f" -Algorithm SHA256).Hash.ToLower()
+            "$h  $f"
+          }
+          $sums | Set-Content -Encoding ascii out/SHA256SUMS.txt
+          $body = @(
+            "### SHA-256"
+            ""
+            "| File | SHA-256 |"
+            "|---|---|"
+          )
+          foreach ($line in $sums) {
+            $h, $f = $line -split "  ", 2
+            $body += "| ``$f`` | ``$h`` |"
+          }
+          $body += ""
+          $body += "Check a download in PowerShell: ``Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256``"
+          $body | Set-Content -Encoding utf8 out/release-notes.md
+          Get-Content out/SHA256SUMS.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: 100TMX-mod
@@ -117,6 +146,9 @@ jobs:
             out/100TMX.dll
             out/100TMX.asi
             out/tmx_version.h
+            out/SHA256SUMS.txt
+          # The hash table first; GitHub's generated notes are appended below it.
+          body_path: out/release-notes.md
           # A release missing the file everybody is told to download should fail
           # the build, not publish quietly without it - which is exactly what
           # v0.2.0 did.
