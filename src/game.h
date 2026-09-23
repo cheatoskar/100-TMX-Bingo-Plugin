@@ -109,6 +109,14 @@ struct Snapshot {
    * keeps it at "running" through a pause.
    */
   bool clockMoving = false;
+  /**
+   * Somebody is driving: the clock is ticking *and* the car has moved in the
+   * last 1.5 s. What decides whether the panel may take the mouse - see
+   * overlay's interactive().
+   */
+  bool driving = false;
+  /** The speedometer, km/h, when the player object is verified. */
+  int speed = 0;
   /** Whether that object was found and verified this tick. */
   bool playerInfoVerified = false;
   /** One line of its fields, for the Status tab while this is being tested. */

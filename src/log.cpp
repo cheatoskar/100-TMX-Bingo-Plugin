@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <share.h>
 
 #include <cstdarg>
 #include <condition_variable>
@@ -82,12 +83,18 @@ std::condition_variable g_queueReady;
 std::deque<Pending> g_queue;
 bool g_writerStarted = false;
 
+// Held open by the writer rather than opened and closed per line. On the
+// machine this was measured on, a single open-append-close took 2 to 50
+// seconds - every close hands the whole file to the virus scanner again. A
+// flush per line still gets each one to disk, so a crash loses nothing.
+FILE* g_file = nullptr;
+
 void writeNow(const Pending& line) {
   const SYSTEMTIME& at = line.at;
-  if (FILE* f = nullptr; fopen_s(&f, g_path.c_str(), "a") == 0 && f) {
-    fprintf(f, "%02d:%02d:%02d.%03d  %s\n", at.wHour, at.wMinute, at.wSecond, at.wMilliseconds, line.text.c_str());
-    fclose(f);  // closed per line: a crash must not lose the line that explains it
-  }
+  if (!g_file) g_file = _fsopen(g_path.c_str(), "a", _SH_DENYNO);
+  if (!g_file) return;
+  fprintf(g_file, "%02d:%02d:%02d.%03d  %s\n", at.wHour, at.wMinute, at.wSecond, at.wMilliseconds, line.text.c_str());
+  fflush(g_file);
 }
 
 void writer() {

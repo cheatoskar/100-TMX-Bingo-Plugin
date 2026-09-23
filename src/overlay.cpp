@@ -41,6 +41,8 @@ bool g_inRace = false;
 int g_raceState = -1;
 bool g_raceStateTrusted = false;
 bool g_raceClockMoving = false;
+bool g_raceDriving = false;
+double g_readAt = 0;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -184,12 +186,16 @@ bool interactive() {
   // panel refuses the mouse forever, which is how "I have to press F9 after
   // every finish" happens.
   //
-  // And only while the clock is actually ticking. Since 0.9.2 the state comes
-  // from the game's own field, which stays "running" through a pause - so the
-  // Escape menu, the one moment somebody reaches for the panel mid-run, locked
-  // it until F9. Tell a run from a pause the way the finish watch does: by
-  // whether the clock moved.
-  if (g_raceState == 1 && g_raceStateTrusted && g_raceClockMoving) return false;
+  // And only while somebody is actually driving: the clock ticking *and* the
+  // car moving. The game keeps race_state at "running" through a pause, and
+  // its clock runs from the end of the countdown whether the car moves or
+  // not - so a pause, or alt-tabbing away from a loaded map, used to lock the
+  // panel until F9. See Snapshot::driving.
+  //
+  // And only from a fresh reading. The game reader publishes twenty times a
+  // second; a reading more than a second old says nothing about now.
+  const bool fresh = g_readAt > 0 && nowSeconds() - g_readAt < 1.0;
+  if (fresh && g_raceState == 1 && g_raceStateTrusted && g_raceDriving) return false;
   // Unknown too. A build whose race state will not read used to fall back to
   // "a map is loaded means hands off", which on such a build means the panel is
   // *never* clickable except through F9 - reported as the board working until
@@ -1265,6 +1271,22 @@ void draw(IDirect3DDevice9* device) {
   g_raceState = state.raceState;
   g_raceStateTrusted = state.raceStateTrusted;
   g_raceClockMoving = state.raceClockMoving;
+  g_raceDriving = state.raceDriving;
+  g_readAt = state.readAt;
+
+  // One line each time the panel starts or stops taking the mouse, with why.
+  // "It would not let me click" is a report nobody can act on; this is.
+  {
+    static int s_last = -1;
+    const int now = interactive() ? 1 : 0;
+    if (now != s_last) {
+      s_last = now;
+      log::line("panel: %s (window %s, state %d, trusted %d, clock %s, driving %d, reading %.1fs old)",
+                now ? "takes the mouse" : "click-through", g_uiOpen ? "open" : "closed", g_raceState,
+                g_raceStateTrusted ? 1 : 0, g_raceClockMoving ? "moving" : "still", g_raceDriving ? 1 : 0,
+                g_readAt > 0 ? nowSeconds() - g_readAt : -1.0);
+    }
+  }
 
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();

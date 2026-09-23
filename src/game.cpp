@@ -750,11 +750,13 @@ const uintptr_t kPiRaceState = 0x314;
 const uintptr_t kPiLapCpCount = 0x330;
 const uintptr_t kPiCpCount = 0x334;
 const uintptr_t kPiRaceFinished = 0x33C;
+const uintptr_t kPiDisplaySpeed = 0x340;
 const uintptr_t kPiFinishNotPassed = 0x344;
 
 struct PlayerFields {
   int raceTime = -1, prevRaceTime = -1, bestTime = -1, nbCompleted = -1, curCheckpoint = -1;
   int raceState = -1, lapCpCount = -1, cpCount = -1, raceFinished = -1, finishNotPassed = -1;
+  int speed = 0;  // display_speed; moves every tick, so never part of the change log
   bool operator!=(const PlayerFields& o) const {
     return memcmp(this, &o, sizeof(PlayerFields)) != 0;
   }
@@ -766,7 +768,9 @@ int g_lastRaceState = -1;
 bool g_sawRunning = false;              // race_state was 1 since the last finish
 int g_gameFinishMs = 0;                 // held while race_state stays 2
 PlayerFields g_lastFields;
-bool g_haveFields = false;              // g_lastFields is a real reading of this map
+bool g_haveFields = false;
+int g_lastSpeed = 0;
+unsigned g_lastMovingAt = 0;   // GetTickCount() when the car last had speed              // g_lastFields is a real reading of this map
 std::string g_fieldsUid;
 std::string g_finishProbe;
 
@@ -848,6 +852,7 @@ PlayerFields readPlayerFields(uintptr_t pi) {
   readAt<int>(pi + kPiCpCount, &f.cpCount);
   readAt<int>(pi + kPiRaceFinished, &f.raceFinished);
   readAt<int>(pi + kPiFinishNotPassed, &f.finishNotPassed);
+  readAt<int>(pi + kPiDisplaySpeed, &f.speed);
   return f;
 }
 
@@ -909,6 +914,7 @@ int watchFinish(uintptr_t pi, const std::string& uid) {
   // race_time moves every tick; only log when something *else* changed.
   PlayerFields a = f, b = g_lastFields;
   a.raceTime = b.raceTime = 0;
+  a.speed = b.speed = 0;
   if (a != b) {
     log::line("game: pi state=%d finished=%d nb_completed=%d prev=%d best=%d cp=%d lapcp=%d cpcount=%d fnp=%d | clock %d ms",
               f.raceState, f.raceFinished, f.nbCompleted, f.prevRaceTime, f.bestTime, f.curCheckpoint, f.lapCpCount,
@@ -918,8 +924,9 @@ int watchFinish(uintptr_t pi, const std::string& uid) {
   g_haveFields = true;
 
   char probe[160];
-  sprintf_s(probe, sizeof(probe), "state %d  finished %d  completed %d  cp %d  (%s)", f.raceState, f.raceFinished,
-            f.nbCompleted, f.curCheckpoint, g_playerInfoVia);
+  sprintf_s(probe, sizeof(probe), "state %d  finished %d  completed %d  cp %d  speed %d  (%s)", f.raceState,
+            f.raceFinished, f.nbCompleted, f.curCheckpoint, f.speed, g_playerInfoVia);
+  g_lastSpeed = f.speed;
   g_finishProbe = probe;
 
   if (f.raceState == 1) {
@@ -1128,6 +1135,22 @@ Snapshot read() {
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
     snap.clockMoving = !frozen && calibrated > 100;
 
+    // Is anybody actually driving? The clock alone cannot say: TrackMania
+    // starts it when the countdown ends whether or not the car moves, so a
+    // player who loads a map and alt-tabs away comes back to a "running" race
+    // with a car that has sat on the line for a minute - and the panel locked
+    // against a run nobody is doing. The speedometer can: display_speed at
+    // +0x340 of the same player object (TMInterface's PlayerInfoStruct). A car
+    // that has been still for a second and a half is not being driven.
+    if (playerInfo) {
+      snap.speed = g_lastSpeed;
+      if (g_lastSpeed >= 3 || g_lastSpeed <= -3) g_lastMovingAt = now;
+      snap.driving = snap.clockMoving && g_lastMovingAt != 0 && now - g_lastMovingAt < 1500;
+    } else {
+      // No player object, no speedometer: the clock is all there is.
+      snap.driving = snap.clockMoving;
+    }
+
     // Watch what the clock does after it stops, and say which of the two it
     // was. See the note on g_freezeValue.
     if (frozen) {
@@ -1200,6 +1223,7 @@ Snapshot read() {
     }
     // Here a stopped clock already reads as Finished, so Running is ticking.
     snap.clockMoving = snap.state == RaceState::Running;
+    snap.driving = snap.clockMoving;
 
     static int s_lastLoggedState = -1;
     if (static_cast<int>(snap.state) != s_lastLoggedState) {

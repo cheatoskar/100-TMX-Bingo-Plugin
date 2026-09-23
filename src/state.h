@@ -232,6 +232,13 @@ struct State {
   /** True only when the state came from a known-good offset, not the search. */
   bool raceStateTrusted = false;
   bool raceClockMoving = false;
+  bool raceDriving = false;
+  /**
+   * When the game reader last published, on the steady clock. The panel only
+   * trusts "driving" from a fresh reading - a stale one that happened to say
+   * so would lock it until F9.
+   */
+  double readAt = 0;
   /**
    * Whether the stopped clock has been shown to be a finish.
    *

@@ -668,6 +668,8 @@ void readLoop() {
       s.raceState = static_cast<int>(snap.state);
       s.raceStateTrusted = snap.stateTrusted;
       s.raceClockMoving = snap.clockMoving;
+      s.raceDriving = snap.driving;
+      s.readAt = nowSeconds();
       s.raceTimeMs = snap.raceTimeMs;
       s.raceStep = snap.raceStep;
       s.finishProbe = snap.finishProbe;

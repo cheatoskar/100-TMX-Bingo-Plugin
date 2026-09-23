@@ -333,9 +333,10 @@ immediately.
 |---|---|
 | **F9** | open/close the settings window (and makes both panels clickable and draggable) |
 
-While the window is closed the panels ignore the mouse only while your race
-clock is ticking, so they cannot get in the way of a run. Paused, on the results
-screen or at the start line they can be clicked and dragged as usual. (Settings
+While the window is closed the panels ignore the mouse only while you are
+actually driving - the race clock ticking *and* the car moving - so they cannot
+get in the way of a run. Standing on the line, paused, alt-tabbed back in or on
+the results screen they can be clicked and dragged as usual. (Settings
 → *The panel takes the mouse* changes that.)
 
 **Bingo** tab: pick the board the Bingo window shows.

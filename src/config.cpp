@@ -3,10 +3,14 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <sstream>
+#include <string>
+#include <thread>
 
 #include "game.h"
 
@@ -138,9 +142,44 @@ void Config::load() {
   }
 }
 
+namespace {
+
+/*
+ * Writing the file happens on a thread of its own, newest text wins.
+ *
+ * save() is called from the game's own render thread - letting go of a dragged
+ * panel saves its position - and on the machine this was measured on, writing
+ * one small file in Documents took anywhere from 2 to 50 seconds. On the render
+ * thread that is the game frozen for as long. So save() only builds the text
+ * and hands it over; whatever the disk costs is paid here, and several saves in
+ * a row collapse into one write of the last.
+ */
+std::mutex g_saveLock;
+std::condition_variable g_saveReady;
+std::string g_savePath;
+std::string g_saveText;
+bool g_savePending = false;
+bool g_saverStarted = false;
+
+void saver() {
+  for (;;) {
+    std::string path, text;
+    {
+      std::unique_lock<std::mutex> guard(g_saveLock);
+      g_saveReady.wait(guard, [] { return g_savePending; });
+      path = g_savePath;
+      text = g_saveText;
+      g_savePending = false;
+    }
+    std::ofstream file(path, std::ios::trunc | std::ios::binary);
+    if (file) file << text;
+  }
+}
+
+}  // namespace
+
 void Config::save() const {
-  std::ofstream file(path(), std::ios::trunc);
-  if (!file) return;
+  std::ostringstream file;
 
   file << "; 100% TMX - game mod.\n"
        << "; Delete this file to forget the machine link entirely.\n\n"
@@ -179,6 +218,18 @@ void Config::save() const {
          << "; that was proved to hold it. Delete the line to calibrate again.\n"
          << "time_chain = " << timeChain << "\n";
   }
+
+  {
+    std::lock_guard<std::mutex> guard(g_saveLock);
+    g_savePath = path();
+    g_saveText = file.str();
+    g_savePending = true;
+    if (!g_saverStarted) {
+      g_saverStarted = true;
+      std::thread(saver).detach();
+    }
+  }
+  g_saveReady.notify_one();
 }
 
 }  // namespace tmx
