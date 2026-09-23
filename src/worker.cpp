@@ -982,11 +982,15 @@ void loop() {
     //
     // Hand the run just driven to the browser extension, which uploads it to
     // TMX with the player's own session - the mod cannot, and must not hold a
-    // login to try. Only for a map the project still wants, or a tile whose
-    // board is decided by a replay on TMX: every other finish would be an
-    // upload TMX refuses anyway (it will not take a replay slower than your
-    // own record), and posting them all to somebody else's server because we
-    // can is not how this earns its place.
+    // login to try.
+    //
+    // Every finish that left an autosave, on any map that is on an exchange -
+    // not only the maps the project still wants. The switch is the player
+    // asking for their replays to go up, and a record on a map somebody else
+    // finished years ago is still their record. It costs TMX nothing extra:
+    // TrackMania only autosaves a run that beats your own best, which is
+    // exactly the replay TMX accepts. A map that is on no exchange has
+    // nowhere to go and is skipped.
     if (linked && config().bridge && snap.state == game::RaceState::Finished && snap.raceTimeMs >= 1000) {
       const std::string finishKey = snap.uid + ":" + std::to_string(snap.raceTimeMs);
       if (finishKey != lastReplayOffer) {
@@ -1001,11 +1005,16 @@ void loop() {
         lastReplayTry = now;
         replayOfferTries++;
         const State view = shared().read();
+        // Whether this finish matters beyond the player's own collection: a
+        // map the project still wants, or a tile decided by a replay on TMX.
+        // Only those are worth a warning when no replay turns up - on any
+        // other map a run that is not a record simply has nothing to upload,
+        // and saying so after every one would be noise.
         bool wanted = view.map.open == 1 && view.map.excluded != 1;
         for (const BoardHit& hit : view.hits) {
           if (!hit.selfReported) wanted = true;
         }
-        const bool offered = wanted && !view.map.site.empty() &&
+        const bool offered = !view.map.site.empty() && view.map.trackId > 0 &&
                              bridge::offerFinish(view.map.site, view.map.trackId, view.map.name, snap.uid,
                                                  snap.raceTimeMs);
         if (offered) {

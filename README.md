@@ -66,25 +66,66 @@ To update, run the new installer; to remove it, run
 > is public and every release is built by GitHub Actions from it. Each release
 > lists the **SHA-256** of every file - check yours with
 > `Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256` and compare. A
-> false-positive report has gone to Microsoft, and code signing is in progress.
+> false-positive report has gone to Microsoft. If you would rather not run the
+> installer at all, [install the DLL by hand](#by-hand-with-only-the-dll).
 
-<details>
-<summary>What the installer writes, exactly</summary>
+### By hand, with only the DLL
 
-The ModLoader keeps a product database rather than a mods folder, and
-installing means three files in it:
+If you would rather not run an `.exe` at all, the installer does nothing you
+cannot do yourself. The ModLoader keeps a product database instead of a mods
+folder; installing the mod means one folder in it with two small text files and
+the DLL.
 
+1. Download **`100TMX.dll`** from [Releases](../../releases/latest).
+2. Open `%LOCALAPPDATA%\TMLoader\database\TmForever\products` (paste it into
+   the Explorer address bar).
+3. Create this layout - the folder name is exactly what the ModLoader lists,
+   and the version folder is the version you downloaded:
+
+   ```
+   products\
+     100% TMX + Bingo\
+       description.yaml
+       0.9.5\
+         description.yaml
+         100TMX.dll
+   ```
+
+4. `100% TMX + Bingo\description.yaml`:
+
+   ```yaml
+   name: 100% TMX + Bingo
+   author: cheatoskar
+   type: modification
+   homepage: 'https://100tmx.com/'
+   description: 'Bingo boards and the 100% TMX project in the game.'
+   ```
+
+5. `0.9.5\description.yaml` - the ModLoader's CoreMod is what actually loads
+   the DLL, so it is listed as a dependency:
+
+   ```yaml
+   executable: 100TMX.dll
+   dependencies:
+     - id: CoreMod
+       version: ^1.0.1
+   changelog: '- The bingo panel, map status, and map marks.'
+   ```
+
+6. Open the ModLoader, tick **100% TMX + Bingo**, start the game. To update,
+   add a folder for the new version next to the old one; to remove the mod,
+   delete the `100% TMX + Bingo` folder.
+
+Save both `.yaml` files as plain UTF-8 (Notepad's default). Or let the
+PowerShell script [`install-modloader.ps1`](install-modloader.ps1) write them -
+it is the installer in readable form:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-modloader.ps1 -Dll .\100TMX.dll -Version 0.9.5
 ```
-%LOCALAPPDATA%\TMLoader\database\TmForever\products\100% TMX + Bingo\
-    description.yaml             name, author, description
-    <version>\description.yaml   executable: 100TMX.dll, needs CoreMod
-    <version>\100TMX.dll
-```
 
-Nothing else: no registry, no game folder, no startup entry. The PowerShell
-script [`install-modloader.ps1`](install-modloader.ps1) does the same thing in
-plain text, and the installer's source is [`installer/main.cpp`](installer/main.cpp).
-</details>
+The installer writes exactly these files and nothing else - no registry, no
+game folder, no startup entry. Its source is [`installer/main.cpp`](installer/main.cpp).
 
 <details>
 <summary>Without the ModLoader (ASI loader)</summary>
@@ -239,6 +280,9 @@ by accident. It disappears when you leave the map or close the game.
 
 ## Uploading replays automatically
 
+Every replay TrackMania autosaves goes up to TMX by itself - on **any** map
+that is on an exchange, not only the ones the 100% project still needs.
+
 TMX has no upload API - only a browser that is signed in to TMX can upload a
 replay for you. So the mod does not upload anything itself and **never sees
 your TMX login**: it hands the replay TrackMania just saved to the
@@ -275,10 +319,14 @@ sequenceDiagram
 
 Good to know:
 
-- Only for maps the project still wants, and tiles on boards that are checked
-  against TMX - anything else TMX would turn down anyway.
-- **TMX refuses a replay slower than your own record** on that map. On a map you
-  have already beaten, that is the normal answer, not an error.
+- **TrackMania only autosaves a run that beats your own best** on the map, so
+  that is what gets uploaded - which is also exactly what TMX accepts. A slower
+  run leaves no file and nothing happens.
+- Maps that are not on any exchange (your own, or from a server) are skipped -
+  there is nowhere to upload them.
+- On a map the project still needs, or a bingo tile checked against TMX, the mod
+  tells you if no replay turned up; everywhere else a run without a new record
+  passes quietly.
 - The mod looks in `Documents\TrackMania` and `Documents\TmForever`. If your
   replays are elsewhere, set the folder on the Connection tab.
 - The connection is local only (`127.0.0.1`), needs the key the mod handed over
