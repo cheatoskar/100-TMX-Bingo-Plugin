@@ -1,436 +1,351 @@
-# 100% TMX + Bingo Overlay for TMNF/TMUF
+# 100% TMX + Bingo — an overlay for TrackMania Forever
 
-**Bingo, in the game.** An overlay for **TrackMania Nations Forever** and
-**TrackMania United Forever** that puts the boards you are playing on screen
-while you drive: your tiles, who holds the others, the time you have to beat -
-and a button that loads any of their maps without leaving the game.
+Bingo boards and the [100% TMX](https://100tmx.com) project, **inside the game**,
+for TrackMania **Nations Forever** and **United Forever**.
 
-**You do not have to be part of any project to use it.** Make a board, send the
-link to three friends, and race them for the evening - the bingo half stands on
-its own.
+- **Race your friends on a bingo board** without alt-tabbing: the grid, who holds
+  each tile, the time to beat, and a button that loads any of its maps.
+- **Know what a map is worth** the moment it loads: has anybody ever finished it,
+  and what does the 100% TMX project score it at?
 
-If you *are* chasing the [100% TMX project](https://100tmx.com), it also answers
-the question every map raises the moment it loads: has anybody ever finished
-this one, and what is it worth?
+You do not have to be part of the 100% project to use it - make a board, send
+the link to three friends, and race them for the evening.
 
 ![The bingo panel and the settings window, in game](images/BingoIngame.png)
 
-> **Status: early.** v0.5.1 runs, and has been through real sessions on
-> Nations Forever. If the panel says a build is not recognised, see
-> [Unrecognised build](#unrecognised-build) - that is a five-minute fix and a
-> useful bug report.
+**[Download](../../releases/latest)** · **[100tmx.com](https://100tmx.com)** ·
+**[Bingo boards](https://100tmx.com/events/bingo)**
 
 ---
 
-## Features
+## Contents
 
-**Bingo**
-
-- **Every board you are in**, weekly and private, in a picker. Choose one and
-  the **Bingo** window keeps it on screen while you drive. A board that has
-  ended is greyed out and says so, rather than looking live and ignoring you.
-- **The grid, colour-coded** — yours, somebody else's, still open — with the
-  tile you are standing on outlined.
-- **The time to beat** on every tile, and who holds it. No alt-tabbing to check
-  whether that run was good enough.
-- **Teams**, when the board is played in sides: one colour for your whole team,
-  the standing scored per side, and a tile your own team already holds says so —
-  beating a teammate moves the tile and wins the side nothing.
-- **Play this map**: hands the running game a TMX ManiaCode, which downloads the
-  map and starts it. Pick a tile, drive it, next.
-- **"I uploaded it"**: after you put the replay on TMX, one button asks the site
-  to check the tile. The site reads TMX and believes only that.
-- **On a self-reported board**, where the site checks nothing, the overlay puts
-  the run you just finished straight onto the tile, the moment you cross the
-  line. On by default, one switch in Settings to make it a button instead. Only
-  there; see [When a tile is filled in](#when-a-tile-is-filled-in).
-- **A time you drove elsewhere** goes on a *no check* board through **Enter my
-  time...** on the tile: type `1:23.45` or `83.45` and it is sent, the same as
-  typing it on the website. Left empty, it marks a tile nobody holds.
-- **Plugin and replay only** boards take the time the game measured and nothing
-  else, so they offer neither the popup nor a mark without a time - finish the
-  map, or give the website the replay file.
-
-The boards themselves live on the website — drawn weekly, or built privately
-for an evening — and the panel is a window onto the same board everybody else
-is playing.
-
-| The board on the site | Building your own |
-|---|---|
-| ![](images/BingoPageonSite.png) | ![](images/CreateBiingoSite.png) |
-
-**The 100% project, if you are in it**
-
-- **Is this map still open?** Green means nobody has ever put a replay on it and
-  it is worth finishing — with the ELO the project scores it at. Grey means it
-  is done, and names who got it.
-- **Your mark on the remaining list.** The map you are on shows as *being
-  played* on the website, so two people do not spend an evening on the same map
-  by accident - with how far through the lap you are. It goes the moment you
-  leave the map or close the game, and expires by itself within minutes if the
-  game dies without saying so. A courtesy signal, never a reservation.
-- **Excluded maps are called out** before you waste a run on one.
-- **Your replay can go up by itself.** Finish a map the project still wants
-  and the mod hands the replay TrackMania just saved to the 100% TMX browser
-  extension, which uploads it to TMX with the session you are already signed
-  in with. Off by default, and your TMX login never comes near the mod - see
-  "Uploading a replay" below.
-
-**Everything else**
-
-- **Two windows, placed separately.** **100% TMX** is the project: is this map
-  open, what it is worth, did somebody just beat it, your replay's upload.
-  **Bingo** is the board: the tile you are on, the time to beat, the grid. Each
-  is dragged and resized on its own - big enough and the tiles become the maps'
-  own screenshots - and the Bingo one is not there without a board.
-- **Settings in-game** (F9): connect or disconnect, the replay uploader, the
-  sharing switch, and how the windows behave.
-- **Nothing is sent until you say so.** Connecting a machine is one deliberate
-  act; sharing what you play is a separate question, asked once, right after.
-- **Nothing is written to the game.** The mod only reads, and it never patches,
-  injects into, or modifies TrackMania itself.
-
-### What it deliberately does not do
-
-**It cannot award you a finish.** Credit in the project comes from the first
-replay uploaded to TMX and nothing else — that is the rule the whole archive is
-rebuilt from. The mod reports what you are playing and shows what the site
-knows; it is never evidence. Same for bingo: a tile is captured by a replay on
-TMX, checked server-side, or not at all.
+1. [Quick start](#quick-start)
+2. [Installing](#installing)
+3. [Connecting your account](#connecting-your-account)
+4. [Playing bingo with friends](#playing-bingo-with-friends)
+5. [The 100% TMX window](#the-100-tmx-window)
+6. [Uploading replays automatically](#uploading-replays-automatically)
+7. [In the game: windows, keys, settings](#in-the-game-windows-keys-settings)
+8. [What leaves your machine](#what-leaves-your-machine)
+9. [Troubleshooting](#troubleshooting)
+10. [For developers](#for-developers)
 
 ---
 
-## Play bingo with your friends
+## Quick start
 
-A board is twenty-five TrackMania maps drawn at random from the exchanges. You
-take a tile by putting a replay on the map; somebody faster takes it back off
-you. Full rows, columns and diagonals are worth extra. It is played in Nations
-or United Forever, and needs nothing from the 100% project.
-
-### First time here
-
-Three things before a board means anything, and each exists for a reason:
-
-1. **Sign in at [100tmx.com](https://100tmx.com) with Discord.** One click, and
-   the only thing asked of Discord is your name and avatar. A board has to know
-   who took which tile, so this is what lets you enter one at all.
-2. **Link your TrackMania Exchange account** - the one-minute guide is at
-   [100tmx.com/guide/accounts](https://100tmx.com/guide/accounts). A tile is
-   captured by a replay *on the exchange*, so the site has to know which account
-   there is yours before it can check one. Without this you can watch a board
-   but not take anything on it.
-3. **The mod is optional.** Everything works in a browser; the overlay only
-   saves the alt-tabbing. If you do want it, install it as above and connect it
-   at [100tmx.com/link](https://100tmx.com/link).
-
-### How a session fits together
-
-One board on the website, and everybody around it. The board is the shared
-thing; the overlay is one per person, linked to their own machine.
-
-```mermaid
-flowchart TB
-    subgraph site["100tmx.com"]
-        board["The board<br/>25 maps - one grid everybody sees"]
-    end
-
-    subgraph anna["Anna - made the board"]
-        direction TB
-        annaB["Browser<br/>signed in with Discord"]
-        annaG["TMNF + overlay<br/>her machine, her own code"]
-    end
-
-    subgraph bo["Bo"]
-        direction TB
-        boB["Browser<br/>signed in with Discord"]
-        boG["TMNF + overlay<br/>his machine, his own code"]
-    end
-
-    subgraph cy["Cy - no overlay, browser only"]
-        direction TB
-        cyB["Browser<br/>signed in with Discord"]
-    end
-
-    annaB -- "built it, sent the link" --> board
-    boB -- "opened the link, entered" --> board
-    cyB -- "opened the link, entered" --> board
-
-    annaG -. "device code" .-> annaB
-    boG -. "device code" .-> boB
-
-    board <-- "the grid, live" --> annaG
-    board <-- "the grid, live" --> boG
-```
-
-Three things that trip people up, and all three are in that picture:
-
-- **The board is made once, by one person.** Everybody else opens the link and
-  presses *Enter the board*. Nobody needs to build their own.
-- **Everybody signs in with Discord on the website.** That is what makes a tile
-  yours rather than somebody's. It is not optional, and the overlay cannot do
-  it for you.
-- **The overlay is per machine, not per board.** Cy above is playing the same
-  board from a browser with no mod at all. It only saves the alt-tabbing.
-
-### What links a machine to your account
-
-There is no browser inside TrackMania, so the overlay cannot sign in. It asks
-for a short code instead and you approve it on the website, already signed in —
-which means the machine inherits every TMX account you have already proved,
-with nothing new to link.
-
-```mermaid
-sequenceDiagram
-    participant G as Overlay (in game)
-    participant S as 100tmx.com
-    participant B as Your browser
-
-    G->>S: Connect - give me a code
-    S-->>G: ABCD-2345
-    Note over G: shows the code,<br/>opens /link
-    B->>S: signed in with Discord,<br/>types ABCD-2345
-    S-->>B: approve this machine?
-    B->>S: yes
-    G->>S: is it approved yet?
-    S-->>G: yes - here is your token, once
-    Note over G,S: The token is this machine's.<br/>Revoke it from either end, any time.
-```
-
-### Who talks to TrackMania Exchange
-
-Nobody but the site. The overlay never uploads anything and never reads the
-exchange — which is why a tile cannot be faked by editing a file on your PC.
-
-```mermaid
-flowchart LR
-    you["You<br/>drive the map"] --> replay["Upload the replay<br/>to TMX yourself"]
-    replay --> tmx[("TrackMania<br/>Exchange")]
-    you -- "press: I uploaded it" --> mod["Overlay"]
-    mod -- "check tile 7" --> site["100tmx.com"]
-    site -- "reads /api/replays" --> tmx
-    tmx -- "your replay, its time" --> site
-    site -- "captured, or not" --> mod
-```
-
-The one exception is a board set to **no check** on the website. That kind
-checks nothing against the exchange at all and says so on its own face, so
-there the overlay may put the run you just finished straight onto the tile.
-Everywhere else a replay on TMX is the only thing that takes one.
-
-### Playing
-
-1. **Get a board.** Enter [this week's](https://100tmx.com/events/bingo), which
-   is open to anyone, or [build your own](https://100tmx.com/events/bingo/new):
-   choose how many maps come from each exchange and how hard they should be,
-   give it a length - an evening, a weekend, a fortnight - and send the link.
-   Anybody signed in who opens it can enter.
-2. **Enter it.** One button, and it is what puts you on the standing.
-3. **Drive a tile.** Each one is a real map: open it, take it from the exchange,
-   drive it. With the mod, *Play this map* loads it straight into the game.
-4. **Upload the replay to TMX**, then press *I uploaded it*. The site reads the
-   exchange and checks - that is the only thing that captures a tile, from the
-   game or the browser.
-
-   Unless the board says otherwise. TMX refuses a replay slower than your own
-   record, so on maps you have already beaten you cannot upload a new one at
-   all - which used to mean a bingo on those maps could never be captured.
-   Whoever builds the board now picks what counts: a replay driven for the
-   board, **any** replay on TMX whatever its age (the one for maps you have all
-   played - your existing time takes the tile, and beating somebody still means
-   going faster, which TMX does accept), or **no check at all**. On that last
-   kind the overlay can submit the run you just drove, because such a board is
-   self-reported by design and says so on its face. On the other two it cannot,
-   for the same reason it may never write to the archive: a program on your PC
-   is not evidence.
-5. **Watch it move.** A capture reaches the website immediately and everybody
-   else's overlay within about twenty seconds.
-
-There is a *How it works* button on both board pages that says the same thing,
-if somebody would rather read it there.
-
-Worth knowing: a private board never feeds the weekly ladder, but it cannot opt
-out of the archive either. If you put the first ever replay on a map nobody had
-finished, that counts as a finish for the project, the way any replay would.
+1. Install the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/).
+2. Download and run **`100TMX-Installer.exe`** from [Releases](../../releases/latest).
+3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
+4. In game press **F9 → Connection → Connect**, and approve the code on the
+   website that opens.
+5. Join a board at [100tmx.com/events/bingo](https://100tmx.com/events/bingo),
+   pick it on the **Bingo** tab, and drive.
 
 ---
 
 ## Installing
 
-You need the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/)
-first — it is what loads mods into the game. (Your antivirus may flag it; it
-injects DLLs, which is what a mod loader does.)
+The mod is loaded by the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/),
+so install that first.
 
-### The installer (one file, one click)
+### With the installer (recommended)
 
 1. Download **`100TMX-Installer.exe`** from [Releases](../../releases/latest).
-2. Run it. The mod is inside it — there is nothing to unzip and no folder to
-   find.
+2. Run it. The mod is inside it - nothing to unzip, no folder to find.
 3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
-`100TMX-Installer.exe /uninstall` removes it again; `/quiet` installs without
-the dialog.
+To update, run the new installer; to remove it, run
+`100TMX-Installer.exe /uninstall` (`/quiet` installs without the dialog).
+
+> **Windows Defender may flag the installer** (usually as `Wacatac!ml`). That
+> is a false positive from Microsoft's machine-learning heuristic: an unsigned
+> program that carries a DLL and writes it into another program's folder looks
+> like malware to it, and so does any mod that draws inside a game. The source
+> is public and every release is built by GitHub Actions from it. Each release
+> lists the **SHA-256** of every file - check yours with
+> `Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256` and compare. A
+> false-positive report has gone to Microsoft, and code signing is in progress.
 
 <details>
-<summary>What it writes, for the suspicious (rightly so — it is a .exe)</summary>
+<summary>What the installer writes, exactly</summary>
 
-The ModLoader has no "mods folder". It keeps a product database, and installing
-means three files in it:
+The ModLoader keeps a product database rather than a mods folder, and
+installing means three files in it:
 
 ```
 %LOCALAPPDATA%\TMLoader\database\TmForever\products\100% TMX + Bingo\
-    description.yaml          name / author / description
-    0.5.0\description.yaml    executable: 100TMX.dll  (+ CoreMod dependency)
-    0.5.0\100TMX.dll
+    description.yaml             name, author, description
+    <version>\description.yaml   executable: 100TMX.dll, needs CoreMod
+    <version>\100TMX.dll
 ```
 
-The folder is what the ModLoader shows in its list, which is why it is spelled
-out rather than shortened. Updating from an older version also rewrites the id
-in your profiles, so a mod that was ticked stays ticked.
-
-Nothing else is touched: no registry, no game folder, no startup entry. The
-PowerShell script `install-modloader.ps1` in this repo does exactly the same
-thing in plain text if you would rather read it than trust it, and the
-installer's source is [`installer/main.cpp`](installer/main.cpp).
+Nothing else: no registry, no game folder, no startup entry. The PowerShell
+script [`install-modloader.ps1`](install-modloader.ps1) does the same thing in
+plain text, and the installer's source is [`installer/main.cpp`](installer/main.cpp).
 </details>
 
-### With an ASI loader (no ModLoader)
+<details>
+<summary>Without the ModLoader (ASI loader)</summary>
 
-1. Take `100TMX.asi` from [Releases](../../releases/latest) and get the 32-bit
+1. Take `100TMX.asi` from [Releases](../../releases/latest) and the 32-bit
    [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
-   build named `binkw32.dll`.
+   named `binkw32.dll`.
 2. In your TrackMania folder, rename the existing `binkw32.dll` to
-   `binkw32Hooked.dll`, then drop the loader's `binkw32.dll` in its place.
-3. Put `100TMX.asi` next to `TmForever.exe`.
-4. Start the game normally.
+   `binkw32Hooked.dll` and put the loader's `binkw32.dll` in its place.
+3. Put `100TMX.asi` next to `TmForever.exe` and start the game normally.
+</details>
 
-### Connecting your account
+---
+
+## Connecting your account
+
+There is no browser inside TrackMania, so the mod does not sign in itself: it
+shows a short code, and you approve it on the website where you are already
+signed in.
 
 ![The Connection tab, connected](images/ConnectionModalIngsame.png)
 
-1. In game, press **F9** — the 100% TMX window opens.
-2. **Connection → Connect.** A code like `ABCD-2345` appears and your browser
-   opens [100tmx.com/link](https://100tmx.com/link).
-3. Sign in with Discord (the same account the bot's `/connect` uses), type the
-   code, and confirm the machine.
+1. In game press **F9**, open **Connection**, press **Connect**.
+2. A code like `ABCD-2345` appears and your browser opens
+   [100tmx.com/link](https://100tmx.com/link).
+3. Sign in with Discord, type the code, confirm the machine.
+4. Within a few seconds the mod says it is connected.
 
-   ![Approving a machine on the website](images/LinkClientonSite.png)
-4. Back in game the panel says connected, within a few seconds.
-5. **Settings → Share what I am playing** if you want your map to show on the
-   remaining list. Leave it off and everything else still works.
+![Approving a machine on the website](images/LinkClientonSite.png)
 
-Every TMX account you have already proved is yours — through `/connect` in chat
-or on the website — comes along automatically. There is nothing else to link.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant G as Mod (in game)
+    participant S as 100tmx.com
+    participant B as Your browser
+    G->>S: Connect
+    S-->>G: code ABCD-2345
+    B->>S: signed in with Discord, enters ABCD-2345
+    S-->>B: Connect this PC?
+    B->>S: Yes
+    S-->>G: approved - here is this machine's token
+```
 
-You can disconnect a machine from in game, or from
-[100tmx.com/link](https://100tmx.com/link), at any time. Its token stops working
-immediately.
+Every TrackMania Exchange account you have linked on the website comes with it -
+there is nothing else to set up in the game. You can disconnect from the mod, or
+from [100tmx.com/link](https://100tmx.com/link), at any time; the machine's
+token stops working at once.
 
 ---
 
-## Using it
+## Playing bingo with friends
 
-| Key | Does |
+A board is a grid of real TrackMania maps from the exchanges. Drive a map to
+take its tile; somebody faster takes it back off you. Complete rows, columns and
+diagonals are worth extra.
+
+### Setting up an evening
+
+1. **One person makes the board** at
+   [100tmx.com/events/bingo/new](https://100tmx.com/events/bingo/new): which
+   exchanges, how hard, how long it runs, teams or not, and
+   [what counts as proof](#what-counts-as-proof). Then they send the link.
+2. **Everybody opens the link, signs in with Discord and presses Enter.** That
+   is what puts you on the standing. Or join the
+   [weekly board](https://100tmx.com/events/bingo), which is open to everyone.
+3. **In game, pick the board** on the **Bingo** tab (F9). The Bingo window now
+   shows it while you drive.
+4. **Drive.** Click a tile and press **Play this map** - the running game
+   downloads the map and starts it.
+
+| The board on the website | Making your own |
 |---|---|
-| **F9** | open/close the settings window (and makes both panels clickable and draggable) |
+| ![](images/BingoPageonSite.png) | ![](images/CreateBiingoSite.png) |
 
-While the window is closed the panels ignore the mouse only while you are
-actually driving - the race clock ticking *and* the car moving - so they cannot
-get in the way of a run. Standing on the line, paused, alt-tabbed back in or on
-the results screen they can be clicked and dragged as usual. (Settings
-→ *The panel takes the mouse* changes that.)
+```mermaid
+flowchart LR
+    maker["Anna<br/>makes the board,<br/>sends the link"] --> board[("The board<br/>on 100tmx.com")]
+    friend1["Bo<br/>opens the link,<br/>presses Enter"] --> board
+    friend2["Cy<br/>opens the link,<br/>presses Enter"] --> board
+    board <-->|"live grid"| modA["Anna's mod"]
+    board <-->|"live grid"| modB["Bo's mod"]
+    board <-->|"live grid"| webC["Cy, in the browser<br/>(no mod needed)"]
+```
 
-**Bingo** tab: pick the board the Bingo window shows.
-**Connection** tab: connect, disconnect, or see the pending code - and the
-replay uploader, which is the other thing this machine connects to.
-![The Settings tab](images/SettingsModalIngame.png)
+- The mod is optional for your friends: the board works from a browser too.
+- The mod is per machine, not per board: connect it once and it shows whichever
+  board you pick.
+- The board's maker can run it from the board page: rename, extend or end it,
+  clear a tile or remove a player.
 
-**Settings** tab: auto-submit, sharing, panel size and opacity. The panels
-themselves are dragged with the window open.
-**Status** tab: your game build, whether the offsets were recognised, the UID of
-the loaded map, and the last thing the mod did. Quote this tab in bug reports.
+### What counts as proof
 
-Settings live in `Documents\100TMX\config.ini`. Deleting that file forgets the
-machine entirely.
+Whoever makes the board chooses how a tile is taken. The mod handles each one
+differently:
+
+| On the website | How you take a tile | With the mod |
+|---|---|---|
+| **A replay driven for this board** | Upload a replay to TMX, driven after the board started | Press **I uploaded it** - the site checks TMX |
+| **Any replay on TMX** | The same, but a replay of any age counts - for maps you have all driven before | Press **I uploaded it** |
+| **No check (works with the plugin)** | The time is self-reported - nothing is uploaded | **Automatic** when you finish, or **Enter my time...** for a run driven elsewhere |
+| **Plugin and replay only** | The time must come from the game, or a replay file on the website | **Automatic** when you finish. No typed times. |
+
+The first two need your TrackMania Exchange account
+[linked on the website](https://100tmx.com/guide/accounts) - the site has to
+know which replays are yours. The last two do not.
+
+```mermaid
+flowchart TD
+    finish(["You cross the finish line"]) --> kind{"What counts<br/>as proof?"}
+    kind -->|"No check /<br/>Plugin and replay only"| faster{"Faster than<br/>the holder?"}
+    faster -->|yes| auto["The mod puts your time<br/>on the tile - instantly"]
+    faster -->|no| keep["The tile stays where it is"]
+    kind -->|"A replay on TMX"| upload["Upload the replay to TMX<br/>(or let the uploader do it)"]
+    upload --> check["Press 'I uploaded it'<br/>- the site checks TMX"]
+```
+
+### When a tile is filled in
+
+On a self-reported board (*No check* or *Plugin and replay only*) your time goes
+on the tile **the moment you cross the line** - first run or tenth, record or
+not - as long as it beats the current holder. The mod reads the game's own
+"race finished" state, so pressing Escape at a checkpoint is never mistaken for
+a finish. Turn it off under **Settings → Put my finish straight onto
+self-reported boards** if you would rather press a button.
+
+A capture shows on the website straight away and in everybody else's mod within
+about twenty seconds.
+
+> A board is its own competition, but the 100% TMX project still sees the
+> exchange: if you put the first-ever replay on a map nobody has finished, it
+> counts as a project finish, like any replay would.
 
 ---
 
-## When a tile is filled in
+## The 100% TMX window
 
-On a board that takes the time the game measured - *no check* or *plugin and
-replay only* - the overlay puts your run on the tile without you pressing
-anything, **the moment you cross the line**. Record or not, first run or tenth.
+For the [100% TMX project](https://100tmx.com) - finishing every map on the
+TrackMania Exchange sites. The window shows, for the map you are on:
 
-It reads the game's own "this run is over" state - the field TrackMania flips
-when you cross the finish, on the same object its race clock lives in (laid out
-in [TMInterface](https://github.com/donadigo/TMInterfaceClientPython)'s
-`PlayerInfoStruct` and read the same way by
-[Twinkie](https://github.com/flownyy/Twinkie)). Pressing Escape does not flip
-it, so a pause at a checkpoint is never mistaken for a finish, and nothing is
-put on a board that nobody drove.
+- **Still open or already finished** - and if finished, by whom.
+- **What it is worth** to the project (its ELO).
+- **Excluded maps**, before you spend a run on one.
+- **If somebody finishes it while you are driving**, you hear about it.
+- **Your replay's upload** after a finish - see below.
 
-A run that beats your best on the map also moves the game's best time, and the
-mod watches that too, so even a finish it somehow did not see as it happened is
-caught the moment it looks again.
-
-Only if that state cannot be read - an unrecognised build - does it fall back
-to the old proofs: the replay TrackMania autosaves on a record, or the clock
-restarting from zero when you retry.
+With **Share what I am playing** on, the map shows as *being played* on the
+website's remaining list, so two people do not spend an evening on the same map
+by accident. It disappears when you leave the map or close the game.
 
 ---
 
----
+## Uploading replays automatically
 
-## Uploading a replay
+TMX has no upload API - only a browser that is signed in to TMX can upload a
+replay for you. So the mod does not upload anything itself and **never sees
+your TMX login**: it hands the replay TrackMania just saved to the
+[TMX Universal Track Downloader](https://github.com/cheatoskar/TMX-Downloader)
+browser extension, which uploads it with your existing session.
 
-TMX has no upload API. Its upload endpoint is authenticated by the site’s own
-session cookie and carries an antiforgery token minted for a page on the
-exchange’s origin, so the only thing that can upload a replay for you is
-something already signed in as you - a browser. This mod is not that, and
-asking you for a TMX password so that it could would be the wrong answer to
-the problem. **Nothing here ever holds your TMX login.**
+### Setting it up
 
-What the mod can do is hand the file over:
-
-1. On the **Connection** tab, tick **Upload my replays through the browser**. The mod
-   generates a pairing key and starts listening on `127.0.0.1:27311` (or the
-   next free port up to 27315).
-2. Install the
+1. Install the
    [TMX Universal Track Downloader](https://github.com/cheatoskar/TMX-Downloader)
-   extension, open its toolbar popup, switch the bridge on and paste the key.
-3. Finish a map the project still wants. The mod finds the autosave
-   TrackMania just wrote, the extension collects it and uploads it to the
-   right exchange, and the overlay says what TMX answered.
+   extension.
+2. In game: **F9 → Connection → Upload my replays through the browser**.
+3. In the extension's toolbar popup, switch the bridge on.
+4. The mod asks **"A browser wants to connect"** - press **Allow**. Done; it is
+   remembered.
 
-Notes worth having in advance:
+Also make sure **autosaving replays is on** in TrackMania's settings - without
+it there is no file to hand over.
 
-- **Autosaving has to be on** in TrackMania’s replay settings, or there is no
-  file to hand over.
-- TMX refuses a replay slower than your own record on that map. On a map you
-  have already beaten that is the ordinary answer, not a fault.
-- Only maps the project still wants, and tiles on a board that is decided by a
-  replay on TMX. Every other finish would be an upload TMX turns down anyway.
-- The default replay folder is
-  `Documents\TmForever\Tracks\Replays\Autosaves`. If yours is elsewhere, set
-  `replay_dir` in `Documents\100TMX\config.ini`.
+```mermaid
+sequenceDiagram
+    participant T as TrackMania
+    participant M as Mod
+    participant E as Browser extension
+    participant X as TMX
+    T->>T: you finish - replay autosaved
+    M->>M: finds the new replay
+    E->>M: anything for me? (127.0.0.1 only)
+    M-->>E: this replay, for this map
+    E->>X: uploads it, signed in as you
+    E-->>M: TMX's answer
+    Note over M: the 100% TMX window shows it
+```
+
+Good to know:
+
+- Only for maps the project still wants, and tiles on boards that are checked
+  against TMX - anything else TMX would turn down anyway.
+- **TMX refuses a replay slower than your own record** on that map. On a map you
+  have already beaten, that is the normal answer, not an error.
+- The mod looks in `Documents\TrackMania` and `Documents\TmForever`. If your
+  replays are elsewhere, set the folder on the Connection tab.
+- The connection is local only (`127.0.0.1`), needs the key the mod handed over
+  when you pressed Allow, and does not exist while the switch is off.
 
 ---
 
-## Unrecognised build
+## In the game: windows, keys, settings
 
-TrackMania Forever exists in several builds, and the addresses the mod reads the
-current map from are different in each. The mod **checks before it trusts**: it
-walks the whole chain while a map is loaded and only accepts the result if it
-looks like a real map UID. When none of its profiles fit, it says so and does
-nothing else — no guessing, no reading random memory.
+**F9** opens and closes the settings window.
 
-If you see that message:
+The mod shows two windows, each moved and resized on its own:
 
-1. Note the **build id** on the Status tab.
-2. Open an issue with it, along with which game (Nations/United) and how you
-   launch it (ModLoader, ASI, Steam).
+| Window | Shows |
+|---|---|
+| **100% TMX** | the map you are on: open or finished, its worth, messages, replay uploads |
+| **Bingo** | the tile you are on and the time to beat, the grid, the standing - whenever a board is picked or the map you are on is a tile. Drag it wide enough and the tiles become the maps' screenshots. |
 
-If you know your way around a disassembler, `config.ini` takes an `[offsets]`
-section that describes a build without waiting for a release:
+While you are **driving**, the windows let clicks through to the game. Standing
+on the line, paused, on the results screen or back from alt-tab, you can click
+and drag them normally. **F9** always makes them clickable.
+
+| Settings tab | For |
+|---|---|
+| **Bingo** | pick the board to show |
+| **Connection** | connect or disconnect this PC, and the replay uploader |
+| **Settings** | automatic tiles, sharing what you play, window size and opacity, when the windows take the mouse |
+| **Status** | game build, mod version, what the mod reads right now - include it in bug reports |
+
+Everything is stored in `Documents\100TMX\config.ini`. Deleting it forgets the
+machine completely.
+
+---
+
+## What leaves your machine
+
+- **Nothing until you connect.**
+- After that: the **ID of the map you are on** (a short code that identifies an
+  upload on the exchange, nothing of the file itself), and the board actions
+  you take. Nothing while you are in the menus. Sharing what you play is
+  announced when you connect and can be switched off in Settings.
+- On self-reported boards, **your finish time** for the tile you drove.
+- With the replay uploader on: the replay goes from your PC, through the
+  browser extension, to TMX - never to this project's server.
+
+The mod **only reads** the game; it never changes TrackMania or its files.
+Credit in the 100% project still comes only from replays on TMX - the mod can
+never award a finish.
+
+---
+
+## Troubleshooting
+
+**The installer is flagged as a virus.** See the note under
+[Installing](#with-the-installer-recommended) - a known false positive; compare
+the SHA-256 with the release.
+
+**"This TrackMania build is not recognised."** TrackMania Forever exists in
+several builds and the mod only reads a build it can verify. Note the build id
+on the **Status** tab and open an issue with it, the game (Nations/United) and
+how you start it (ModLoader, ASI, Steam).
+
+<details>
+<summary>Describing a build yourself (advanced)</summary>
+
+`config.ini` takes an `[offsets]` section, checked like the built-in ones before
+it is trusted:
 
 ```ini
 [offsets]
@@ -447,83 +362,62 @@ player_sub = 0x1C
 player_state = 0x314
 player_time = 0x2B0
 ```
+</details>
+
+**My time did not go on the tile.** Check that the board is *No check* or
+*Plugin and replay only* (the others need a replay on TMX), that your time beats
+the holder's, and that **Settings → Put my finish straight onto self-reported
+boards** is on.
+
+**The windows will not take the mouse.** They let clicks through while you are
+driving; stop the car or pause. **F9** always makes them clickable.
+
+**Something else.** `Documents\100TMX\log.txt` records what the mod did - attach
+it to an issue.
 
 ---
 
-## Building it yourself
+## For developers
 
 Visual Studio 2022 (or the Build Tools) with the C++ workload, plus CMake.
-**32-bit only** — TMF is a 32-bit process, and the CMake file refuses to
-configure for x64 rather than producing a DLL that silently never loads.
+**32-bit only** - TrackMania Forever is a 32-bit game.
 
 ```bash
 cmake -S . -B build -A Win32
 cmake --build build --config Release
 ```
 
-Output: `build/Release/100TMX.dll`, the same bytes as `100TMX.asi`, and
-`100TMX-Installer.exe` with the DLL embedded in it.
-Dear ImGui is fetched at configure time and pinned; the runtime is linked
-statically, so there is no redistributable to install.
-
-CI builds the same thing on every push, and a `v*` tag cuts a release.
-
----
-
-## How it is put together
+This builds `build/Release/100TMX.dll` (the same bytes as `100TMX.asi`) and
+`100TMX-Installer.exe` with the DLL inside. Dear ImGui is fetched and pinned at
+configure time, and the runtime is linked statically. CI builds every push; a
+`v*` tag publishes a release with SHA-256 hashes.
 
 | File | Does |
 |---|---|
-| `dllmain.cpp` | starts one thread and gets out of the loader's way |
-| `hook.cpp` | swaps two D3D9 vtable entries: EndScene to draw, Reset to let go |
-| `overlay.cpp` | the panel, the board, the settings window |
-| `worker.cpp` | the only thread allowed to touch the network |
-| `game.cpp` | reads the game's own state, and refuses to guess |
-| `config.cpp` | the ini in Documents |
+| `dllmain.cpp` | starts the mod's threads and gets out of the loader's way |
+| `hook.cpp` | hooks Direct3D 9 `EndScene`/`Reset` to draw the overlay |
+| `overlay.cpp` | the two windows and the settings window |
+| `game.cpp` | reads the game's state - map, race clock, finish, speed - read-only, every pointer guarded |
+| `worker.cpp` | everything that talks to the website, on its own thread |
+| `bridge.cpp` | the local connection for the browser extension |
+| `config.cpp`, `log.cpp` | the ini and the log, written in the background |
 | `http.cpp`, `json.h` | WinHTTP, and just enough JSON |
 
-The rules it is built to:
-
-- **Nothing waits on the network inside a frame.** The overlay draws from a copy
-  of shared state; every request is on the worker thread with a timeout. A hook
-  that awaits is a frozen game.
-- **A crash in somebody's game is worse than a missing badge on a webpage.**
-  Every pointer walk is guarded, every failure degrades to "no overlay", and the
-  mod never writes a byte of the game's memory.
-- **Playing a map is TMX's own mechanism.** `/trackplay/<id>` answers with a
-  `tmtp://` ManiaCode that the running game executes, so the mod downloads
-  nothing and never touches your Tracks folder.
-
-### What leaves your machine
-
-Only the **map UID** — a 22-character token that identifies an upload on the
-exchange and carries nothing of the file — plus your board choices when you
-press something. No file paths, no folder contents, no telemetry.
-
-One exception, and only if you switch it on: with the **replay bridge**
-enabled the mod opens a socket on `127.0.0.1` and offers the replay you just
-drove to the browser extension, which uploads it to TMX. The file goes from
-your PC to the exchange and nowhere else - not to this project’s server, not
-to anybody. The socket is loopback-only, needs a key the mod prints in its own
-settings, and does not exist at all while the switch is off.
-The mod sends nothing at all until a machine is connected. After that, sharing
-which map you are on is **on** — the overlay says so once when you connect, with
-a button to turn it off there and then, and the switch is in Settings for ever
-after. Nothing is sent while you are in the menus.
+How the finish is detected, and what was tried before, is written up in
+[`docs/finish-marker.md`](docs/finish-marker.md).
 
 ---
 
-## Third-party
+## Credits and licence
 
-- [Dear ImGui](https://github.com/ocornut/imgui) — MIT, fetched at build time.
-- The addresses the game state is read from come from
-  [Twinkie](https://github.com/flownyy/Twinkie) (MIT, Copyright (c) 2025 Ahmad
-  Saleh), whose `TwinkTrackmania` layer is the published reference for where
-  TmForever keeps the current challenge. No Twinkie code is compiled in and
-  Twinkie is not required at runtime.
+- [Dear ImGui](https://github.com/ocornut/imgui) - MIT.
+- [Twinkie](https://github.com/flownyy/Twinkie) (MIT, Ahmad Saleh) - the
+  published reference for where TmForever keeps the current map.
+- [TMInterface](https://github.com/donadigo/TMInterfaceClientPython) - the
+  layout of the player state the finish and speed are read from.
 
-The mod is **MIT licensed** - see [LICENSE](LICENSE). Fork it, build it, and in
-particular: add the offsets for a TrackMania build it does not know yet. The
-addresses it reads come from MIT-licensed work in the first place, and a mod
-whose whole problem is "every build is different" should not make fixing that a
-legal question.
+No code from Twinkie or TMInterface is compiled in, and neither is needed at
+runtime.
+
+The mod is **MIT licensed** - see [LICENSE](LICENSE). Fork it, build it, and
+especially: add offsets for a TrackMania build it does not know yet.
