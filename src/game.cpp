@@ -238,7 +238,14 @@ uintptr_t g_cachedTimeOffset = 0x2BC;
 uintptr_t g_cachedStateOffset = 0x314;
 uintptr_t g_cachedRace = 0;
 
-const int kMaxRaceMs = 30 * 60 * 1000;
+// The longest a race clock can plausibly read - a sanity bound against garbage,
+// nothing more. It was 30 minutes, and that was wrong: TMX is full of RPG and
+// endurance maps that take far longer, and at 30:00 the verified clock was
+// thrown away as "implausible", the player object with it, and the finish was
+// never seen - a 43-minute run left no replay upload and no tile (reported
+// 2026-09-23). A day covers every real run and still rejects the INT_MAX-style
+// values a wrong pointer produces.
+const int kMaxRaceMs = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // The calibrated clock.
