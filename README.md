@@ -44,8 +44,12 @@ this one, and what is it worth?
   the run you just finished straight onto the tile, the moment you cross the
   line. On by default, one switch in Settings to make it a button instead. Only
   there; see [When a tile is filled in](#when-a-tile-is-filled-in).
+- **A time you drove elsewhere** goes on a *no check* board through **Enter my
+  time...** on the tile: type `1:23.45` or `83.45` and it is sent, the same as
+  typing it on the website. Left empty, it marks a tile nobody holds.
 - **Plugin and replay only** boards take the time the game measured and nothing
-  else, so there is no "take without a time" button on them - finish the map.
+  else, so they offer neither the popup nor a mark without a time - finish the
+  map, or give the website the replay file.
 
 The boards themselves live on the website — drawn weekly, or built privately
 for an evening — and the panel is a window onto the same board everybody else
@@ -329,8 +333,10 @@ immediately.
 |---|---|
 | **F9** | open/close the settings window (and makes both panels clickable and draggable) |
 
-While the window is closed the panels are a read-out and clicks go to the game,
-so they cannot get in the way of a run.
+While the window is closed the panels ignore the mouse only while your race
+clock is ticking, so they cannot get in the way of a run. Paused, on the results
+screen or at the start line they can be clicked and dragged as usual. (Settings
+→ *The panel takes the mouse* changes that.)
 
 **Bingo** tab: pick the board the Bingo window shows.
 **Connection** tab: connect, disconnect, or see the pending code - and the

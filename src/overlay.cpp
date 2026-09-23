@@ -40,6 +40,7 @@ bool g_inRace = false;
 // TrackMania build's offsets did not resolve - see `interactive()`.
 int g_raceState = -1;
 bool g_raceStateTrusted = false;
+bool g_raceClockMoving = false;
 WNDPROC g_originalWndProc = nullptr;
 int g_selectedTile = -1;
 
@@ -74,6 +75,37 @@ std::string timeString(int ms) {
     sprintf_s(buf, sizeof(buf), "%d.%02d", seconds, hundredths);
   }
   return buf;
+}
+
+/**
+ * A time as a person types it, in milliseconds - or -1 when it is not one.
+ *
+ * "1:23.45", "83.45", "83,45" and "83" (whole seconds) all work, because the
+ * same board is played by people who write times three different ways and a
+ * form that rejects two of them reads as broken.
+ */
+int parseTimeMs(const char* text) {
+  std::string t;
+  for (const char* c = text; *c; ++c) {
+    if (*c == ' ') continue;
+    t += (*c == ',') ? '.' : *c;
+  }
+  if (t.empty()) return -1;
+  int minutes = 0;
+  const size_t colon = t.find(':');
+  if (colon != std::string::npos) {
+    const std::string m = t.substr(0, colon);
+    if (m.empty() || m.find_first_not_of("0123456789") != std::string::npos) return -1;
+    minutes = atoi(m.c_str());
+    t = t.substr(colon + 1);
+  }
+  if (t.empty() || t.find_first_not_of("0123456789.") != std::string::npos) return -1;
+  if (t.find('.') != t.rfind('.')) return -1;
+  const double seconds = atof(t.c_str());
+  if (colon != std::string::npos && seconds >= 60.0) return -1;
+  const double ms = (minutes * 60.0 + seconds) * 1000.0;
+  if (ms <= 0 || ms > 24.0 * 3600.0 * 1000.0) return -1;
+  return static_cast<int>(ms + 0.5);
 }
 
 void setup(IDirect3DDevice9* device) {
@@ -151,7 +183,13 @@ bool interactive() {
   // inferred from a clock the mod went looking for, being wrong means the
   // panel refuses the mouse forever, which is how "I have to press F9 after
   // every finish" happens.
-  if (g_raceState == 1 && g_raceStateTrusted) return false;
+  //
+  // And only while the clock is actually ticking. Since 0.9.2 the state comes
+  // from the game's own field, which stays "running" through a pause - so the
+  // Escape menu, the one moment somebody reaches for the panel mid-run, locked
+  // it until F9. Tell a run from a pause the way the finish watch does: by
+  // whether the clock moved.
+  if (g_raceState == 1 && g_raceStateTrusted && g_raceClockMoving) return false;
   // Unknown too. A build whose race state will not read used to fall back to
   // "a map is loaded means hands off", which on such a build means the panel is
   // *never* clickable except through F9 - reported as the board working until
@@ -606,15 +644,54 @@ void drawBoard(const State& state) {
             ImGui::NewLine();
             ImGui::TextColored(kMuted, "Finish this map to take it - the time comes from the game.");
           } else {
-            // No finish in hand, so this marks the tile empty - and says so
-            // rather than looking like the ordinary action. See the same note
-            // in the map panel above.
-            if (ImGui::Button("Take without a time")) {
-              pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
+            // A "no check" board takes a time typed on the website, so it takes
+            // one typed here too - the same self-reporting the board already
+            // advertises, one step closer. No finish in hand is the usual
+            // reason to be here: a run driven before the overlay was open, or
+            // on another machine. Empty still marks the tile with no time,
+            // which the site only lets onto a tile nobody holds.
+            static char s_time[16] = "";
+            static std::string s_error;
+            if (ImGui::Button("Enter my time...")) {
+              s_time[0] = '\0';
+              s_error.clear();
+              ImGui::OpenPopup("##entertime");
             }
-            if (ImGui::IsItemHovered()) {
-              ImGui::SetTooltip(
-                  "Marks it with no time on it. Finish the map with the panel open to put your time on instead.");
+            if (ImGui::BeginPopup("##entertime")) {
+              ImGui::TextUnformatted(tile.name.empty() ? "(unnamed map)" : tile.name.c_str());
+              if (tile.held && tile.holderTime > 0) {
+                ImGui::TextColored(kMuted, "To beat: %s", timeString(tile.holderTime).c_str());
+              }
+              ImGui::TextColored(kMuted, "Your time, like 1:23.45 or 83.45");
+              if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+              ImGui::PushItemWidth(140);
+              const bool entered = ImGui::InputText("##time", s_time, sizeof(s_time),
+                                                    ImGuiInputTextFlags_EnterReturnsTrue);
+              ImGui::PopItemWidth();
+              ImGui::SameLine();
+              if (ImGui::Button("Take the tile") || entered) {
+                const int ms = parseTimeMs(s_time);
+                if (ms < 0) {
+                  s_error = "That is not a time.";
+                } else if (tile.held && tile.holderTime > 0 && ms >= tile.holderTime) {
+                  // The site would refuse it; saying so here saves the round trip.
+                  s_error = "Not faster than " + timeString(tile.holderTime) + ".";
+                } else {
+                  pushCommand(Command::Kind::Check, board.id, tile.idx, ms);
+                  ImGui::CloseCurrentPopup();
+                }
+              }
+              if (!s_error.empty()) ImGui::TextColored(kWarn, "%s", s_error.c_str());
+              ImGui::Separator();
+              if (!tile.held) {
+                if (ImGui::Button("Mark it without a time")) {
+                  pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
+                  ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+              }
+              if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+              ImGui::EndPopup();
             }
           }
         } else {
@@ -1187,6 +1264,7 @@ void draw(IDirect3DDevice9* device) {
   g_inRace = state.inRace;
   g_raceState = state.raceState;
   g_raceStateTrusted = state.raceStateTrusted;
+  g_raceClockMoving = state.raceClockMoving;
 
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();

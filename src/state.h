@@ -231,6 +231,7 @@ struct State {
   int raceState = -1;   // game::RaceState
   /** True only when the state came from a known-good offset, not the search. */
   bool raceStateTrusted = false;
+  bool raceClockMoving = false;
   /**
    * Whether the stopped clock has been shown to be a finish.
    *

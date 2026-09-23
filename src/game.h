@@ -102,6 +102,13 @@ struct Snapshot {
    * crossed and held while the results screen is up; 0 otherwise.
    */
   int gameFinishMs = 0;
+  /**
+   * The race clock advanced within the last 600 ms. Paused (the Escape menu),
+   * on the results screen and on the start line it is false - which is when a
+   * player reaches for the panel, and race_state alone cannot say so: the game
+   * keeps it at "running" through a pause.
+   */
+  bool clockMoving = false;
   /** Whether that object was found and verified this tick. */
   bool playerInfoVerified = false;
   /** One line of its fields, for the Status tab while this is being tested. */

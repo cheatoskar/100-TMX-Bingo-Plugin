@@ -1126,6 +1126,7 @@ Snapshot read() {
     // for TrackMania to have written a replay, which it does not do for a
     // pause, and the bridge has nothing to upload without one either.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
+    snap.clockMoving = !frozen && calibrated > 100;
 
     // Watch what the clock does after it stops, and say which of the two it
     // was. See the note on g_freezeValue.
@@ -1197,6 +1198,8 @@ Snapshot read() {
     } else {
       snap.state = RaceState::Running;
     }
+    // Here a stopped clock already reads as Finished, so Running is ticking.
+    snap.clockMoving = snap.state == RaceState::Running;
 
     static int s_lastLoggedState = -1;
     if (static_cast<int>(snap.state) != s_lastLoggedState) {

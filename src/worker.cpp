@@ -667,6 +667,7 @@ void readLoop() {
       s.mapName = snap.mapName;
       s.raceState = static_cast<int>(snap.state);
       s.raceStateTrusted = snap.stateTrusted;
+      s.raceClockMoving = snap.clockMoving;
       s.raceTimeMs = snap.raceTimeMs;
       s.raceStep = snap.raceStep;
       s.finishProbe = snap.finishProbe;
