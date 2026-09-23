@@ -18,6 +18,16 @@ the link to three friends, and race them for the evening.
 
 ---
 
+### ✨ Highlights
+- 🎯 **Live Bingo board with automatic checks** — Times and claims update live in game the moment you cross the finish line.
+- 👥 **Play custom Bingo boards with friends** — Create your own board, send the link, and battle for tiles in real time.
+- 📍 **Mark your current map on the site while playing** — Shows your current map on 100tmx.com so others know it is being hunted.
+- 🔔 **Get notified when your map is beaten while playing** — Instant in-game alerts whenever someone beats your time or claims a map.
+- 📊 **See map ELO in-game** — Instantly check if a map has ever been finished and what it scores.
+- 🚀 **Automatically upload replays to TMX** — Seamlessly sends autosaved records to TMX via the companion browser extension.
+
+---
+
 ## Contents
 
 1. [Quick start](#quick-start)
