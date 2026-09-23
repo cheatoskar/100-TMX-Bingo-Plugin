@@ -97,26 +97,31 @@ jobs:
       - name: Collect
         run: |
           mkdir out
-          copy build\Release\100TMX-Installer.exe out\
           copy build\Release\100TMX.dll out\
           copy build\Release\100TMX.asi out\
           copy build\tmx_version.h out\
           copy README.md out\
 
-      # The manual install, ready to copy: the ModLoader's product folder with
-      # both description files and the DLL, named exactly as the installer
-      # names them - because it is the installer's own script that writes it.
-      # Unzip, drop "100% TMX + Bingo" into the ModLoader's products folder,
-      # done. pwsh rather than Windows PowerShell: its Compress-Archive writes
-      # forward slashes, which every unzip tool reads as folders.
-      - name: ModLoader zip
+      # The download: one zip holding the ModLoader's product folder, ready to
+      # copy, the installer that copies it, and README.txt saying both ways.
+      # The folder is written by install-modloader.ps1, the same script that
+      # installs locally, so its file names and YAML cannot drift. The installer
+      # no longer carries the DLL inside itself - that was the dropper shape
+      # Defender flagged - it copies this folder. pwsh rather than Windows
+      # PowerShell: its Compress-Archive writes forward slashes, which every
+      # unzip tool reads as folders.
+      - name: Zip
         shell: pwsh
         run: |
           $line = Select-String -Path build/tmx_version.h -Pattern '^#define TMX_VERSION_A "(.+)"$'
           $version = $line.Matches[0].Groups[1].Value
           New-Item -ItemType Directory -Force pkg | Out-Null
           ./install-modloader.ps1 -Dll build/Release/100TMX.dll -Version $version -Products (Resolve-Path pkg).Path
-          Compress-Archive -Path "pkg/100% TMX + Bingo" -DestinationPath out/100TMX-ModLoader.zip -Force
+          Copy-Item build/Release/100TMX-Installer.exe pkg/
+          # CRLF, so the oldest Notepad shows it as lines.
+          (Get-Content installer/README.txt -Raw -Encoding utf8) -replace "`r?`n", "`r`n" |
+            Set-Content pkg/README.txt -Encoding utf8 -NoNewline
+          Compress-Archive -Path pkg/* -DestinationPath out/100TMX.zip -Force
           Get-ChildItem -Recurse pkg | Select-Object FullName, Length
 
       # A fingerprint of every file, so anybody can check that what they
@@ -127,13 +132,18 @@ jobs:
       - name: Hashes
         shell: pwsh
         run: |
-          $files = "100TMX-Installer.exe", "100TMX-ModLoader.zip", "100TMX.dll", "100TMX.asi", "tmx_version.h"
+          $files = "100TMX.zip", "100TMX.dll", "100TMX.asi", "tmx_version.h"
           $sums = foreach ($f in $files) {
             $h = (Get-FileHash "out/$f" -Algorithm SHA256).Hash.ToLower()
             "$h  $f"
           }
           $sums | Set-Content -Encoding ascii out/SHA256SUMS.txt
-          $body = @(
+          # RELEASE_NOTES.md is what this release says about itself - edit it
+          # before tagging. The hash table follows it, GitHub's list of changes
+          # after that.
+          $body = @()
+          if (Test-Path RELEASE_NOTES.md) { $body += Get-Content RELEASE_NOTES.md -Encoding utf8; $body += "" }
+          $body += @(
             "### SHA-256"
             ""
             "| File | SHA-256 |"
@@ -144,7 +154,7 @@ jobs:
             $body += "| ``$f`` | ``$h`` |"
           }
           $body += ""
-          $body += "Check a download in PowerShell: ``Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256``"
+          $body += "Check a download in PowerShell: ``Get-FileHash .\100TMX.zip -Algorithm SHA256``"
           $body | Set-Content -Encoding utf8 out/release-notes.md
           Get-Content out/SHA256SUMS.txt
 
@@ -158,13 +168,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            out/100TMX-Installer.exe
-            out/100TMX-ModLoader.zip
+            out/100TMX.zip
             out/100TMX.dll
             out/100TMX.asi
             out/tmx_version.h
             out/SHA256SUMS.txt
-          # The hash table first; GitHub's generated notes are appended below it.
+          # The notes and hash table first; GitHub's generated notes follow.
           body_path: out/release-notes.md
           # A release missing the file everybody is told to download should fail
           # the build, not publish quietly without it - which is exactly what

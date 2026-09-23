@@ -46,7 +46,8 @@ the link to three friends, and race them for the evening.
 ## Quick start
 
 1. Install the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/).
-2. Download and run **`100TMX-Installer.exe`** from [Releases](../../releases/latest).
+2. Download **`100TMX.zip`** from [Releases](../../releases/latest), unzip it,
+   and run **`100TMX-Installer.exe`** from the unzipped folder.
 3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 4. In game press **F9 → Connection → Connect**, and approve the code on the
    website that opens.
@@ -60,39 +61,42 @@ the link to three friends, and race them for the evening.
 The mod is loaded by the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/),
 so install that first.
 
-### With the installer (recommended)
+Everything is in **`100TMX.zip`** on the [Releases](../../releases/latest) page:
 
-1. Download **`100TMX-Installer.exe`** from [Releases](../../releases/latest).
-2. Run it. The mod is inside it - nothing to unzip, no folder to find.
+```
+100TMX.zip
+├── 100TMX-Installer.exe     copies the folder below into the ModLoader
+├── README.txt               these steps, in English and German
+└── 100% TMX + Bingo\        the mod, ready for the ModLoader
+```
+
+### With the installer
+
+1. Unzip **`100TMX.zip`** - the whole thing (right-click it, *Extract All...*).
+2. Run **`100TMX-Installer.exe`** from the unzipped folder.
 3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
-To update, run the new installer; to remove it, run
+To update, do the same with the new zip. To remove the mod, run
 `100TMX-Installer.exe /uninstall` (`/quiet` installs without the dialog).
-
-> **Windows Defender may flag the installer** (usually as `Wacatac!ml`). That
-> is a false positive from Microsoft's machine-learning heuristic: an unsigned
-> program that carries a DLL and writes it into another program's folder looks
-> like malware to it, and so does any mod that draws inside a game. The source
-> is public and every release is built by GitHub Actions from it. Each release
-> lists the **SHA-256** of every file - check yours with
-> `Get-FileHash .\100TMX-Installer.exe -Algorithm SHA256` and compare. A
-> false-positive report has gone to Microsoft. If you would rather not run the
-> installer at all, use the [ready-to-copy zip](#by-hand-without-the-installer).
 
 ### By hand, without the installer
 
-If you would rather not run an `.exe` at all, every release also has
-**`100TMX-ModLoader.zip`**: the mod's folder for the ModLoader, ready to copy.
-
-1. Download **`100TMX-ModLoader.zip`** from [Releases](../../releases/latest)
-   and unzip it. Inside is a folder named **`100% TMX + Bingo`**.
+1. Unzip **`100TMX.zip`**.
 2. Open `%LOCALAPPDATA%\TMLoader\database\TmForever\products` (paste it into
    the Explorer address bar).
-3. Copy the **`100% TMX + Bingo`** folder in there. If it already exists, let
-   Windows merge the folders - the new version goes next to the old one.
+3. Copy the **`100% TMX + Bingo`** folder from the zip in there. If it already
+   exists, let Windows merge the folders - the new version goes next to the old
+   one.
 4. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
 To remove the mod, delete the `100% TMX + Bingo` folder again.
+
+> **A virus warning?** The installer is not code-signed, so Windows may still
+> distrust it. It does nothing but copy the `100% TMX + Bingo` folder that sits
+> next to it - since 1.0.0 it no longer carries the mod inside itself, which is
+> what Defender used to flag as `Wacatac!ml`. If you would rather not run it,
+> copy the folder by hand as above. Every release lists the **SHA-256** of each
+> file; check yours with `Get-FileHash .\100TMX.zip -Algorithm SHA256`.
 
 <details>
 <summary>What is in the folder, if you want to make it yourself</summary>
@@ -104,7 +108,7 @@ name is exactly what it lists, and each version has a folder of its own:
 products\
   100% TMX + Bingo\
     description.yaml
-    0.9.5\
+    1.0.0\
       description.yaml
       100TMX.dll
 ```
@@ -119,7 +123,7 @@ homepage: 'https://100tmx.com/'
 description: 'Bingo boards and the 100% TMX project in the game.'
 ```
 
-`0.9.5\description.yaml` - the ModLoader's CoreMod is what actually loads the
+`1.0.0\description.yaml` - the ModLoader's CoreMod is what actually loads the
 DLL, so it is listed as a dependency:
 
 ```yaml
@@ -130,16 +134,16 @@ dependencies:
 changelog: '- The bingo panel, map status, and map marks.'
 ```
 
-Save both as plain UTF-8 (Notepad's default). The zip, the installer and the
-PowerShell script [`install-modloader.ps1`](install-modloader.ps1) all write
-exactly these files - the zip is built by that script:
+Save both as plain UTF-8 (Notepad's default). The folder in the zip is built by
+the PowerShell script [`install-modloader.ps1`](install-modloader.ps1), which
+can also install straight from a DLL:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install-modloader.ps1 -Dll .\100TMX.dll -Version 0.9.5
+powershell -ExecutionPolicy Bypass -File install-modloader.ps1 -Dll .\100TMX.dll -Version 1.0.0
 ```
 
-None of them touch anything else - no registry, no game folder, no startup
-entry. The installer's source is [`installer/main.cpp`](installer/main.cpp).
+Nothing else is touched - no registry, no game folder, no startup entry. The
+installer's source is [`installer/main.cpp`](installer/main.cpp).
 </details>
 
 <details>
@@ -396,8 +400,8 @@ never award a finish.
 ## Troubleshooting
 
 **The installer is flagged as a virus.** See the note under
-[Installing](#with-the-installer-recommended) - a known false positive; compare
-the SHA-256 with the release.
+[Installing](#by-hand-without-the-installer) - copy the folder by hand instead,
+and compare the SHA-256 with the release.
 
 **"This TrackMania build is not recognised."** TrackMania Forever exists in
 several builds and the mod only reads a build it can verify. Note the build id
@@ -451,9 +455,10 @@ cmake --build build --config Release
 ```
 
 This builds `build/Release/100TMX.dll` (the same bytes as `100TMX.asi`) and
-`100TMX-Installer.exe` with the DLL inside. Dear ImGui is fetched and pinned at
+`100TMX-Installer.exe`, which copies the folder next to it. Dear ImGui is fetched and pinned at
 configure time, and the runtime is linked statically. CI builds every push; a
-`v*` tag publishes a release with SHA-256 hashes.
+`v*` tag publishes a release - `100TMX.zip`, the DLL, the ASI and SHA-256
+hashes - with [`RELEASE_NOTES.md`](RELEASE_NOTES.md) at the top of its notes.
 
 | File | Does |
 |---|---|

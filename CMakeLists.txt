@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.21)
 # was a second place to remember. CI overrides it from the tag
 # (-DTMX_VERSION=0.6.4), so a release can only ever announce the tag it was
 # built from; this default is what a local build calls itself.
-project(tmx_mod VERSION 0.9.5 LANGUAGES CXX)
+project(tmx_mod VERSION 1.0.0 LANGUAGES CXX)
 # NOT a cache entry. A cached default is written once and then wins over the
 # source forever: this sat at 0.6.15 while `project(VERSION)` said 0.7.0, so a
 # local build installed itself into the wrong folder and the game kept loading
@@ -105,23 +105,15 @@ add_custom_command(TARGET tmx_mod POST_BUILD
 # ---------------------------------------------------------------------------
 # The installer.
 #
-# One .exe that carries the DLL inside it and writes the three files the
-# ModLoader's product database wants. The DLL is embedded as a resource, so the
-# resource script has to be generated after the mod is built - `file(GENERATE)`
-# rather than `configure_file`, because the path is only known per configuration.
+# It copies the "100% TMX + Bingo" folder that sits next to it in the release
+# zip into the ModLoader's product database. It no longer carries the DLL as an
+# embedded resource: an exe that unpacks a hidden DLL into another program's
+# folder is the textbook dropper, and Defender's ML heuristic flagged it as a
+# trojan on every release. The zip is assembled in CI by install-modloader.ps1.
 # ---------------------------------------------------------------------------
-file(GENERATE
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
-  CONTENT "#include \"resource.h\"
-101 RCDATA \"$<TARGET_FILE:tmx_mod>\"
-"
-)
-
 add_executable(tmx_installer WIN32
   installer/main.cpp
-  ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
 )
-add_dependencies(tmx_installer tmx_mod)
 
 # Through a generated header, not a -D string: `TMX_VERSION=L"0.6.4"` loses its
 # quotes between CMake, MSBuild and the compiler, and the installer went out
@@ -131,8 +123,6 @@ target_include_directories(tmx_installer PRIVATE installer "${CMAKE_CURRENT_BINA
 # The DLL logs its own version, so "installed" and "running" can be told apart
 # when the ModLoader has several versions to choose from.
 target_include_directories(tmx_mod PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/installer_$<CONFIG>.rc
-             PROPERTY INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/installer)
 
 target_compile_definitions(tmx_installer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_compile_options(tmx_installer PRIVATE /W4 /EHsc)

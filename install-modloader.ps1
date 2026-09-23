@@ -13,7 +13,7 @@
 
 param(
   [string]$Dll = "$PSScriptRoot\100TMX.dll",
-  [string]$Version = "0.9.5",
+  [string]$Version = "1.0.0",
   # Write the product folder here instead of into the ModLoader. CI uses it to
   # build the ready-to-copy zip from the very same code that installs, so the
   # two can never disagree about a file name or a line of YAML.

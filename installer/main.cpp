@@ -1,13 +1,20 @@
-// One file that installs the mod.
+// Installs the mod from the zip it came in.
 //
 // The TrackMania ModLoader has no "mods folder" to drop a DLL into: it keeps a
 // product database under %LOCALAPPDATA%\TMLoader, a folder per mod and a folder
 // per version inside it, each with a small description.yaml. Nobody should have
 // to know that.
 //
-// So this carries the DLL inside itself as a resource, writes the three files,
-// and says what to do next. No network, no dependencies, no install wizard with
-// six Next buttons - it is one dialog either way.
+// The zip already holds that folder, ready - "100% TMX + Bingo", exactly as the
+// ModLoader wants it - and this copies it into place. That is all it does.
+//
+// It used to carry the DLL inside itself as a resource and write it out, which
+// is the textbook shape of a malware dropper, and Microsoft Defender's
+// machine-learning detection called it one (Trojan:Win32/Wacatac!ml) on every
+// release. Copying a folder that sits in plain sight next to the program is the
+// same install without the shape - and the folder can be copied by hand just as
+// well, which README.txt in the zip says. No network, no dependencies, one
+// dialog either way.
 //
 //   100TMX-Installer.exe              install, with a confirmation dialog
 //   100TMX-Installer.exe /quiet       install, say nothing unless it fails
@@ -18,7 +25,6 @@
 
 #include <string>
 
-#include "resource.h"
 #include "tmx_version.h"
 
 #pragma comment(lib, "shell32.lib")
@@ -53,17 +59,43 @@ std::string wide(const std::wstring& in) {
   return out;
 }
 
-bool writeFile(const std::wstring& path, const void* data, DWORD size) {
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return false;
-  DWORD written = 0;
-  const bool ok = WriteFile(file, data, size, &written, nullptr) && written == size;
-  CloseHandle(file);
-  return ok;
+// The folder this program was started from - where the zip put
+// "100% TMX + Bingo" next to it.
+std::wstring ownDirectory() {
+  wchar_t path[MAX_PATH]{};
+  const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) return std::wstring();
+  std::wstring out(path, length);
+  const size_t slash = out.find_last_of(L"\\/");
+  return slash == std::wstring::npos ? std::wstring() : out.substr(0, slash);
 }
 
-bool writeText(const std::wstring& path, const std::string& text) {
-  return writeFile(path, text.data(), static_cast<DWORD>(text.size()));
+bool exists(const std::wstring& path) {
+  return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// Copies the product folder: its files, and one level of version folders with
+// their files. Exactly the shape the ModLoader uses and nothing deeper -
+// bounded on purpose, like the removal below.
+bool copyProduct(const std::wstring& from, const std::wstring& to, int depth = 0) {
+  SHCreateDirectoryExW(nullptr, to.c_str(), nullptr);
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((from + L"\\*").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+  bool ok = true;
+  do {
+    const std::wstring name = find.cFileName;
+    if (name == L"." || name == L"..") continue;
+    const std::wstring source = from + L"\\" + name;
+    const std::wstring target = to + L"\\" + name;
+    if (find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+      if (depth < 1) ok = copyProduct(source, target, depth + 1) && ok;
+    } else {
+      ok = CopyFileW(source.c_str(), target.c_str(), FALSE) && ok;
+    }
+  } while (FindNextFileW(handle, &find));
+  FindClose(handle);
+  return ok;
 }
 
 // Removes a directory and what is in it, one level deep - which is all this
@@ -154,7 +186,7 @@ int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
 
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int) {
   const std::wstring args = commandLine ? commandLine : L"";
   const bool quiet = args.find(L"/quiet") != std::wstring::npos;
   g_quiet = quiet;
@@ -169,7 +201,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   const std::wstring loader = local + L"\\TMLoader";
   const std::wstring products = loader + L"\\database\\TmForever\\products";
   const std::wstring product = products + L"\\" + kProduct;
-  const std::wstring target = product + L"\\" + kVersion;
 
   if (uninstall) {
     removeVersionDir(product);
@@ -189,56 +220,34 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     return 1;
   }
 
-  // The DLL travels inside this executable, so there is one file to download
-  // and nothing to unzip into the right place.
-  HRSRC found = FindResourceW(instance, MAKEINTRESOURCEW(IDR_MOD_DLL), RT_RCDATA);
-  HGLOBAL loaded = found ? LoadResource(instance, found) : nullptr;
-  const void* data = loaded ? LockResource(loaded) : nullptr;
-  const DWORD size = found ? SizeofResource(instance, found) : 0;
-  if (!data || size == 0) {
-    say(L"This installer is missing the mod itself - download it again.", MB_ICONERROR);
+  // The folder the zip put next to this program. Missing almost always means
+  // it was started from inside the zip without unpacking it - Windows then
+  // extracts this one file to a temporary folder and nothing else.
+  const std::wstring source = ownDirectory() + L"\\" + kProduct;
+  if (!exists(source + L"\\description.yaml")) {
+    say(L"The folder \"100% TMX + Bingo\" is not next to this installer.\n\n"
+        L"Unzip the whole zip first (right-click it, \"Extract All...\"), then run "
+        L"100TMX-Installer.exe from the unzipped folder.",
+        MB_ICONERROR);
     return 1;
   }
-
-  SHCreateDirectoryExW(nullptr, target.c_str(), nullptr);
 
   // An older install sat under a different folder name, which is also the id a
   // profile ticked. Move both across before writing, so an update keeps working
   // instead of silently switching itself off.
   for (const wchar_t* old : kOldProducts) {
     const std::wstring previous = products + L"\\" + old;
-    if (GetFileAttributesW(previous.c_str()) != INVALID_FILE_ATTRIBUTES) removeVersionDir(previous);
+    if (exists(previous)) removeVersionDir(previous);
   }
+  renameInProfiles(loader, kProduct, L"");
 
   // Older *versions* of this product are deliberately left alone. Deleting
   // them tidies the ModLoader's list, and it also breaks every profile that
   // has this mod ticked at the version being removed: the loader resolves a
   // profile by product *and* version, and a missing one fails the whole launch
   // with "failed to find required products to resolve their dependencies" -
-  // the game will not start at all. Shipped for about an hour and broke a
-  // player's install; an untidy list is not worth a game that will not boot.
-  // The name in the ModLoader's list. Bingo leads, because that is the half
-  // somebody is looking for when they scroll past it.
-  const std::string productYaml =
-      "name: 100% TMX + Bingo\n"
-      "author: cheatoskar\n"
-      "type: modification\n"
-      "homepage: 'https://100tmx.com/'\n"
-      "description: 'Bingo boards on screen while you drive - your tiles, the time to beat, and a button that starts "
-      "any of their maps. Plus: is this map still open for the 100% TMX project, what is it worth, who finished it.'\n";
-
-  // CoreMod is what actually loads mod DLLs into the game, so it is a real
-  // dependency even though nothing in the mod calls into it.
-  const std::string versionYaml =
-      "executable: 100TMX.dll\n"
-      "dependencies:\n"
-      "  - id: CoreMod\n"
-      "    version: ^1.0.1\n"
-      "changelog: '- The bingo panel, map status, and map marks.'\n";
-
-  const bool ok = writeText(product + L"\\description.yaml", productYaml) &&
-                  writeText(target + L"\\description.yaml", versionYaml) &&
-                  writeFile(target + L"\\100TMX.dll", data, size);
+  // the game will not start at all. Copying merges, so they stay.
+  const bool ok = copyProduct(source, product);
 
   if (!ok) {
     say(L"Could not write into the ModLoader's folder.\n\n"
@@ -248,7 +257,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
   }
 
   if (!quiet) {
-    say(L"100% TMX + Bingo is installed.\n\n"
+    say(std::wstring(L"100% TMX + Bingo ") + kVersion + L" is installed.\n\n"
         L"1. Open the TrackMania ModLoader\n"
         L"2. Tick \"100% TMX + Bingo\" in the list\n"
         L"3. Start the game\n\n"
