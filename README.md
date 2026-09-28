@@ -314,9 +314,17 @@ browser extension, which uploads it with your existing session.
    [TMX Universal Track Downloader](https://github.com/cheatoskar/TMX-Downloader)
    extension.
 2. In game: **F9 → Connection → Upload my replays through the browser**.
+
+   ![Step 1: the upload switch on the Connection tab](images/Step1.png)
+
 3. Go to TMX's upload page. Press connect.
+
+   ![Step 2: the extension's box on TMX's upload page, connected](images/Step2.png)
+
 4. The mod asks (in the window: "100% TMX" - not the connection window) **"A browser wants to connect"** - press **Allow**. Done; it is
    remembered.
+
+   ![Step 3: the question in the 100% TMX window - press Allow](images/Step3.png)
 
 Also make sure **autosaving replays is on** in TrackMania's settings - without
 it there is no file to hand over.
