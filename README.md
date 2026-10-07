@@ -484,6 +484,12 @@ How the finish is detected, and what was tried before, is written up in
 
 ---
 
+## Development Note
+
+This mod was developed with the help of [Claude Code](https://claude.com/claude-code). The ideas, presets, design and testing are my own, with AI assisting throughout the development process. If you find a bug, please report it in the [issues](https://github.com/cheatoskar/100-TMX-Bingo-Plugin/issues).
+
+---
+
 ## Credits and licence
 
 - [Dear ImGui](https://github.com/ocornut/imgui) - MIT.
