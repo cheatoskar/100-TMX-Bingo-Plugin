@@ -19,7 +19,7 @@ namespace {
 DWORD WINAPI boot(LPVOID) {
   char exe[MAX_PATH]{};
   GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  tmx::log::line("boot thread: host is %s", exe);
+  tmx::log::line("boot thread: 100TMX %s, host is %s", TMX_VERSION_A, exe);
 
   // Before anything else: the game asks d3d9 for its factory early, and the
   // only way to see the device it actually draws with is to be in place when
@@ -67,7 +67,11 @@ extern "C" __declspec(dllexport) BOOL APIENTRY DllMain(HMODULE module, DWORD rea
       // version and picks one of them; with several installed, "the new DLL is
       // in place" and "the new DLL is running" are different claims, and only
       // the second one matters. This is how to tell them apart.
-      tmx::log::line("DllMain: attached (module %p) - 100TMX %s", (void*)module, TMX_VERSION_A);
+      //
+      // Only OutputDebugString here. The log file means the shell's known-folder
+      // lookup, which is COM, which is exactly what must not run under the
+      // loader lock - the boot thread writes the same line to the file.
+      OutputDebugStringA("[100TMX] DllMain: attached - 100TMX " TMX_VERSION_A "\n");
       DisableThreadLibraryCalls(module);
       HANDLE thread = CreateThread(nullptr, 0, boot, nullptr, 0, nullptr);
       if (thread) CloseHandle(thread);

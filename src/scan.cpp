@@ -55,6 +55,45 @@ std::vector<Region> readableRegions() {
   return out;
 }
 
+/**
+ * Copy bytes out of the process, surviving the memory having gone since the
+ * region map was taken.
+ *
+ * The map is a snapshot, and a search runs for seconds while the game keeps
+ * allocating and freeing - unloading a map releases whole blocks. A plain
+ * memcpy into a block that was released a moment ago is an access violation
+ * nobody catches, which is the game gone. Only access violations are caught;
+ * anything else is not ours to swallow.
+ */
+bool copyOut(void* out, uintptr_t address, size_t size) {
+  __try {
+    memcpy(out, reinterpret_cast<const void*>(address), size);
+    return true;
+  } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                : EXCEPTION_CONTINUE_SEARCH) {
+    return false;
+  }
+}
+
+/**
+ * Every aligned int equal to `value` in [base, end), up to `max` of them.
+ *
+ * One guarded block per region rather than per int: entering an SEH frame
+ * for each of a few hundred million reads would turn a two-second scan into a
+ * long one. A fault ends this region's scan with what was found so far.
+ */
+size_t scanRegion(uintptr_t base, uintptr_t end, int value, uintptr_t* out, size_t max) {
+  size_t count = 0;
+  __try {
+    for (uintptr_t at = base; at + sizeof(int) <= end && count < max; at += 4) {
+      if (*reinterpret_cast<const int*>(at) == value) out[count++] = at;
+    }
+  } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                : EXCEPTION_CONTINUE_SEARCH) {
+  }
+  return count;
+}
+
 class Memory {
  public:
   Memory() : regions_(readableRegions()) {}
@@ -70,15 +109,11 @@ class Memory {
   }
 
   bool readInt(uintptr_t address, int* out) const {
-    if (span(address) < sizeof(int)) return false;
-    memcpy(out, reinterpret_cast<const void*>(address), sizeof(int));
-    return true;
+    return span(address) >= sizeof(int) && copyOut(out, address, sizeof(int));
   }
 
   bool readPtr(uintptr_t address, uintptr_t* out) const {
-    if (span(address) < sizeof(uintptr_t)) return false;
-    memcpy(out, reinterpret_cast<const void*>(address), sizeof(uintptr_t));
-    return true;
+    return span(address) >= sizeof(uintptr_t) && copyOut(out, address, sizeof(uintptr_t));
   }
 
   const std::vector<Region>& regions() const { return regions_; }
@@ -201,9 +236,12 @@ std::vector<Chain> findChains(uintptr_t root, uintptr_t target, int maxDepth, si
     if (node.depth >= maxDepth) continue;
 
     const size_t reach = (std::min)(static_cast<size_t>(kHopWindow), memory.span(node.addr));
+    // The whole window in one guarded copy, then walked from the copy.
+    unsigned char block[kHopWindow];
+    if (reach == 0 || !copyOut(block, node.addr, reach)) continue;
     for (uintptr_t offset = 0; offset + sizeof(uintptr_t) <= reach; offset += 4) {
       uintptr_t next = 0;
-      memcpy(&next, reinterpret_cast<const void*>(node.addr + offset), sizeof(next));
+      memcpy(&next, block + offset, sizeof(next));
       if (!looksLikePointer(memory, next)) continue;
       if (!seen.insert(next).second) continue;
 
@@ -231,15 +269,13 @@ std::vector<uintptr_t> findValue(int value, size_t maxHits) {
     if (VirtualQuery(reinterpret_cast<LPCVOID>(region.base), &info, sizeof(info)) != sizeof(info)) continue;
     if (info.Type != MEM_PRIVATE) continue;
 
-    for (uintptr_t at = region.base; at + sizeof(int) <= region.end; at += 4) {
-      int here = 0;
-      memcpy(&here, reinterpret_cast<const void*>(at), sizeof(here));
-      if (here != value) continue;
-      hits.push_back(at);
-      if (hits.size() >= maxHits) {
-        log::line("scan: stopped at %zu addresses holding %d", hits.size(), value);
-        return hits;
-      }
+    const size_t room = maxHits - hits.size();
+    std::vector<uintptr_t> found(room);
+    const size_t got = scanRegion(region.base, region.end, value, found.data(), room);
+    hits.insert(hits.end(), found.begin(), found.begin() + static_cast<std::ptrdiff_t>(got));
+    if (hits.size() >= maxHits) {
+      log::line("scan: stopped at %zu addresses holding %d", hits.size(), value);
+      return hits;
     }
   }
 

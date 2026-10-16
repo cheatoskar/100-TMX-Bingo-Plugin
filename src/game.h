@@ -97,6 +97,12 @@ struct Snapshot {
    */
   int confirmedFinishMs = 0;
   /**
+   * How long ago the clock last moved, in milliseconds, or -1 where nothing
+   * here watches it. What a replay file's time is compared against to prove
+   * it belongs to *this* stop and not an earlier run.
+   */
+  int stoppedMsAgo = -1;
+  /**
    * The game's own finish: race_state went 1 -> 2 on the player-info object
    * whose race_time is the calibrated clock. Set the moment the line is
    * crossed and held while the results screen is up; 0 otherwise.

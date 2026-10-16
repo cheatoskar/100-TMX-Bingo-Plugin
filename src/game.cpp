@@ -269,8 +269,9 @@ uintptr_t g_appForScan = 0;
 void loadTimeChain() {
   if (g_timeChainLoaded) return;
   g_timeChainLoaded = true;
-  if (!config().timeChain.empty()) {
-    g_timeChain = scan::parse(config().timeChain);
+  const std::string savedChain = config().copy(config().timeChain);
+  if (!savedChain.empty()) {
+    g_timeChain = scan::parse(savedChain);
     if (!g_timeChain.hops.empty() || g_timeChain.delta) {
       log::line("game: calibrated clock chain from the ini: app -> %s", g_timeChain.text().c_str());
       return;
@@ -438,8 +439,8 @@ bool narrowCandidates(uintptr_t race) {
       }
       g_timeChain = *shortestChain;
       g_timeChainLoaded = true;
-      config().timeChain = shortestChain->text();
-      config().save();
+      const std::string text = shortestChain->text();
+      config().edit([&](Config& c) { c.timeChain = text; });
       log::line("game: clock learned and saved - app -> %s (no calibration needed again on this build)",
                 shortestChain->text().c_str());
     } else {
@@ -723,6 +724,7 @@ int g_lastLoggedCheckpoint = -2;
 int g_freezeValue = -1;          // clock reading when it stopped; -1 = running
 int g_confirmedFinishMs = 0;     // the last freeze proved to be a finish
 std::string g_confirmedUid;      // and the map it happened on
+std::string g_freezeUid;         // the map the clock stopped on
 
 void logFinishCandidates(int officialState) {
   static int s_last = -2;
@@ -1140,6 +1142,8 @@ Snapshot read() {
     // for TrackMania to have written a replay, which it does not do for a
     // pause, and the bridge has nothing to upload without one either.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
+    // A stop that is still pending when the map changes belongs to the old map.
+    if (g_freezeValue >= 0 && snap.uid != g_freezeUid) g_freezeValue = -1;
     snap.clockMoving = !frozen && calibrated > 100;
 
     // Is anybody actually driving? The clock alone cannot say: TrackMania
@@ -1161,11 +1165,17 @@ Snapshot read() {
     // Watch what the clock does after it stops, and say which of the two it
     // was. See the note on g_freezeValue.
     if (frozen) {
-      if (g_freezeValue < 0) g_freezeValue = calibrated;
+      if (g_freezeValue < 0) {
+        g_freezeValue = calibrated;
+        // Taken now, not when the restart confirms it: by then the race object
+        // may have been reused for the next map, and the finish would be
+        // credited to a map nobody finished.
+        g_freezeUid = snap.uid;
+      }
     } else if (g_freezeValue >= 0) {
       if (calibrated < g_freezeValue) {
         g_confirmedFinishMs = g_freezeValue;
-        g_confirmedUid = snap.uid;
+        g_confirmedUid = g_freezeUid;
         log::line("game: that stop at %d ms was a finish - the clock restarted at %d", g_freezeValue, calibrated);
       } else {
         log::line("game: that stop at %d ms was a pause - the clock carried on to %d", g_freezeValue, calibrated);
@@ -1175,6 +1185,7 @@ Snapshot read() {
     // Only for the map it happened on: moving to another map must not carry a
     // finish across to it.
     snap.confirmedFinishMs = (!g_confirmedUid.empty() && g_confirmedUid == snap.uid) ? g_confirmedFinishMs : 0;
+    snap.stoppedMsAgo = g_lastClockMove > 0 ? static_cast<int>(now - g_lastClockMove) : -1;
 
     if (playerInfo && resolvedState >= 0 && resolvedState <= 2) {
       // The game's own word, from the object the clock lives in. Tested
@@ -1328,9 +1339,11 @@ namespace {
 void adoptChain(const scan::Chain& chain, const char* how) {
   g_timeChain = chain;
   g_timeChainLoaded = true;
-  config().timeChain = chain.text();
-  config().timeAddress.clear();
-  config().save();
+  const std::string text = chain.text();
+  config().edit([&](Config& c) {
+    c.timeChain = text;
+    c.timeAddress.clear();
+  });
 
   g_calibCandidates.clear();
   g_calibNote = "Calibrated: app -> " + chain.text();
@@ -1426,6 +1439,11 @@ bool calibrateByTime(int milliseconds) {
 }
 
 CalibrationState calibration() {
+  // Under the read lock, like everything else that touches the clock search:
+  // the candidates and the chain are rebuilt by read() and by a calibration
+  // the worker runs, and this used to walk them from the render thread while
+  // either of those was reallocating them.
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   CalibrationState out;
   loadTimeChain();
   out.haveChain = !g_timeChain.hops.empty() || g_timeChain.delta != 0;
@@ -1446,8 +1464,7 @@ void forgetCalibration() {
   g_timeChainLoaded = true;
   g_calibCandidates.clear();
   g_calibNote.clear();
-  config().timeChain.clear();
-  config().save();
+  config().edit([](Config& c) { c.timeChain.clear(); });
   log::line("game: calibration cleared");
 }
 

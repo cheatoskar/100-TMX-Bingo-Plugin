@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "game.h"
+
 namespace tmx {
 
 // What the site says about the map currently loaded.
@@ -29,6 +31,8 @@ struct MapStatus {
   std::string url;
   std::string playUrl;
   std::string uploadUrl;
+  /** TMX's screenshot of the map. */
+  std::string imageUrl;
   int open = -1;             // 1 open, 0 finished, -1 not in the catalogue
   int excluded = -1;
   int score = 0;
@@ -259,6 +263,8 @@ struct State {
   int raceTimeMs = -1;
   /** Which dereference the walk to the player died on. See game::Snapshot. */
   int raceStep = 0;
+  /** Where the race clock comes from on this build - see game::calibration(). */
+  game::CalibrationState calib;
 
   // ---------------------------------------------------------- the account
   bool linked = false;
@@ -274,6 +280,14 @@ struct State {
   std::vector<BoardHit> hits;
   std::vector<AlsoHere> alsoHere;
   std::vector<BoardSummary> boards;
+  /**
+   * The board picked in the settings, as the worker last stored it.
+   *
+   * The panels read this rather than `config().board`: that string is assigned
+   * on the worker thread, and copying it on the render thread at the same
+   * moment is a read of freed memory.
+   */
+  std::string selectedBoard;
   BoardView board;
   std::string lastCall;     // "reported the map", "checked tile 7", …
   std::string lastError;
