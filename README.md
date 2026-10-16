@@ -378,10 +378,10 @@ TM Vibrant Shaders menu:
 
 While you are **driving**, the panels let clicks through to the game. Standing
 on the line, paused, on the results screen or back from alt-tab, you can click
-and drag them normally. **F9** always makes them clickable, and the three bars
-in a panel's corner open the menu. The **x** next to them hides that panel;
-switch it back on under **Settings** (or the **Panels** switch at the top of
-the menu).
+and drag them normally. **F9** always makes them clickable and opens the menu.
+Each panel has two buttons in its corner: **-** folds it down to its title row
+(the same button opens it again), **x** hides it; switch a hidden panel back on
+under **Settings** (or the **Panels** switch at the top of the menu).
 
 The menu opens on the side of the screen the panels are not on:
 

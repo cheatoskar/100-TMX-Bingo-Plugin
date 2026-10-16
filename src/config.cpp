@@ -127,6 +127,8 @@ void Config::load() {
       else if (key == "auto_submit") autoSubmitSelfReported = asBool(value, autoSubmitSelfReported);
       else if (key == "overlay") overlay = asBool(value, overlay);
       else if (key == "bingo_panel") bingoPanel = asBool(value, bingoPanel);
+      else if (key == "panel_minimized") overlayMin = asBool(value, overlayMin);
+      else if (key == "bingo_minimized") bingoMin = asBool(value, bingoMin);
       else if (key == "corner") overlayCorner = asInt(value, overlayCorner, 0, 1);
       else if (key == "scale") overlayScale = asFloat(value, overlayScale, 0.7f, 1.8f);
       else if (key == "alpha") overlayAlpha = asFloat(value, overlayAlpha, 0.2f, 1.0f);
@@ -249,6 +251,8 @@ void Config::save() const {
          << "auto_submit = " << (autoSubmitSelfReported ? "true" : "false") << "\n"
          << "overlay = " << (overlay ? "true" : "false") << "\n"
          << "bingo_panel = " << (bingoPanel ? "true" : "false") << "\n"
+         << "panel_minimized = " << (overlayMin ? "true" : "false") << "\n"
+         << "bingo_minimized = " << (bingoMin ? "true" : "false") << "\n"
          << "corner = " << overlayCorner << "\n"
          << "scale = " << overlayScale << "\n"
          << "alpha = " << overlayAlpha << "\n"

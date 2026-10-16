@@ -1256,10 +1256,12 @@ ImGuiWindowFlags panelFlags(bool canClick) {
 }
 
 // A panel's title row: its name in its colour, a quieter line beside it, and
-// on the right the connection dot and (when it takes the mouse) the way into
-// the menu.
+// on the right the connection dot and, when it takes the mouse, the panel's own
+// two buttons - fold it down to this row, or hide it. There is deliberately no
+// way into the menu here: a button in that corner reads as the window's own,
+// and one that opened the menu instead was taken for a broken close button.
 void drawPanelHeader(const State& state, const char* title, const ImVec4& colour, const std::string& subtitle,
-                     bool canClick, bool logo, bool* shown) {
+                     bool canClick, bool logo, bool* shown, bool* minimized) {
   ImDrawList* draw = ImGui::GetWindowDrawList();
   const float fs = ImGui::GetFontSize();
   ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1274,18 +1276,21 @@ void drawPanelHeader(const State& state, const char* title, const ImVec4& colour
     p = ImGui::GetCursorScreenPos();
   }
   const float button = h;
-  // The close button takes the right edge; everything else moves over for it.
-  const float right = ImGui::GetWindowContentRegionMax().x - (canClick && shown ? button + fs * 0.2f : 0.0f);
+  const float gap = fs * 0.2f;
+  // The buttons take the right edge; the dot and the subtitle move over for them.
+  const float right = ImGui::GetWindowContentRegionMax().x;
+  const float buttons = canClick ? 2.0f * button + gap : 0.0f;
+  const float dotX = right - buttons - (canClick ? fs * 1.2f : fs);
   draw->AddText(g_fontTitle, h, p, col(colour), title);
   const float titleW = g_fontTitle->CalcTextSizeA(h, FLT_MAX, 0.0f, title).x;
   if (!subtitle.empty()) {
-    const ImVec4 clip(p.x, p.y, ImGui::GetWindowPos().x + right - button - fs * 1.6f, p.y + h);
+    const ImVec4 clip(p.x, p.y, ImGui::GetWindowPos().x + dotX - fs * 0.4f, p.y + h);
     draw->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(p.x + titleW + fs * 0.4f, p.y + h - fs * 0.95f), col(kMuted),
                   subtitle.c_str(), nullptr, 0.0f, &clip);
   }
   ImGui::Dummy(ImVec2(titleW, h));
 
-  ImGui::SameLine(right - button - fs * 1.2f);
+  ImGui::SameLine(dotX);
   const ImVec2 dot = ImGui::GetCursorScreenPos();
   ImGui::Dummy(ImVec2(fs, h));
   const ImVec4 status = state.linked ? kOpen : state.linking ? kMine : kMuted;
@@ -1294,24 +1299,33 @@ void drawPanelHeader(const State& state, const char* title, const ImVec4& colour
     ImGui::SetTooltip("%s", state.linked ? "Connected" : state.linking ? "Waiting for the code" : "Not connected");
   }
   if (canClick) {
-    ImGui::SameLine(right - button);
+    // Minimise: the panel keeps its place and its title row, and opens again
+    // from the same button.
+    ImGui::SameLine(right - 2.0f * button - gap);
     const ImVec2 at = ImGui::GetCursorScreenPos();
-    if (ImGui::InvisibleButton("menu", ImVec2(button, h))) g_uiOpen = !g_uiOpen;
+    if (ImGui::InvisibleButton("minimize", ImVec2(button, h))) {
+      *minimized = !*minimized;
+      config().save();
+    }
     const bool hovered = ImGui::IsItemHovered();
     if (hovered) {
       draw->AddRectFilled(at, ImVec2(at.x + button, at.y + h), IM_COL32(255, 255, 255, 25), 4.0f * g_scale);
-      ImGui::SetTooltip("%s the menu (%s)", g_uiOpen ? "Close" : "Open", keyName(config().toggleKey).c_str());
+      ImGui::SetTooltip("%s", *minimized ? "Expand" : "Minimize");
     }
-    // Three bars: the menu.
-    const ImU32 bars = hovered ? IM_COL32_WHITE : col(kMuted);
-    for (int i = 0; i < 3; i++) {
-      const float y = at.y + h * (0.3f + 0.2f * i);
-      draw->AddLine(ImVec2(at.x + button * 0.22f, y), ImVec2(at.x + button * 0.78f, y), bars, 2.0f * g_scale);
+    const ImU32 ink = hovered ? IM_COL32_WHITE : col(kMuted);
+    const float m = button * 0.28f;
+    if (*minimized) {
+      // A chevron pointing down: there is more below.
+      const ImVec2 chevron[] = {ImVec2(at.x + m, at.y + h * 0.4f), ImVec2(at.x + button * 0.5f, at.y + h * 0.65f),
+                                ImVec2(at.x + button - m, at.y + h * 0.4f)};
+      draw->AddPolyline(chevron, 3, ink, ImDrawFlags_None, 2.0f * g_scale);
+    } else {
+      draw->AddLine(ImVec2(at.x + m, at.y + h * 0.6f), ImVec2(at.x + button - m, at.y + h * 0.6f), ink, 2.0f * g_scale);
     }
   }
-  if (canClick && shown) {
+  if (canClick) {
     // Close: the panel stays off until it is switched on again in the menu.
-    ImGui::SameLine(right + fs * 0.2f);
+    ImGui::SameLine(right - button);
     const ImVec2 at = ImGui::GetCursorScreenPos();
     if (ImGui::InvisibleButton("close", ImVec2(button, h))) {
       *shown = false;
@@ -1327,7 +1341,7 @@ void drawPanelHeader(const State& state, const char* title, const ImVec4& colour
     draw->AddLine(ImVec2(at.x + m, at.y + m), ImVec2(at.x + button - m, at.y + h - m), cross, 2.0f * g_scale);
     draw->AddLine(ImVec2(at.x + button - m, at.y + m), ImVec2(at.x + m, at.y + h - m), cross, 2.0f * g_scale);
   }
-  ImGui::Spacing();
+  if (!*minimized) ImGui::Spacing();
 }
 
 // The map you are on, for the project: is it open, what is it worth, who else
@@ -1486,6 +1500,11 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
   const float width = 340.0f * g_scale * scale;
   const ImVec2 below(g_panelPos.x >= 0 ? g_panelPos.x : 16.0f * g_scale,
                      g_panelPos.x >= 0 ? g_panelPos.y + g_panelSize.y + 8.0f * g_scale : 400.0f * g_scale);
+  // Never moved: it follows the map panel's bottom edge every frame. Placed
+  // once, it landed under that panel's first frame - one title row tall,
+  // because the height fits the content and the content had not been laid out
+  // yet - and stayed there, on top of everything the map panel then grew into.
+  if (c.bingoX < 0 || c.bingoY < 0) s_place = true;
   static float s_width = 0.0f;
   placeWindow(s_place, c.bingoX, c.bingoY, c.bingoW, s_width, below, width);
 
@@ -1495,12 +1514,15 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
     ImGui::SetWindowFontScale(scale);
     const BoardView& board = state.board;
     const std::string subtitle = board.loaded ? (board.title.empty() ? board.id : board.title) : std::string();
-    drawPanelHeader(state, "Bingo", kMine, subtitle, canClick, false, &config().bingoPanel);
-    if (!state.hits.empty() || (state.inRace && state.raceState < 0)) {
-      drawBingoHits(state, canClick);
-      if (board.loaded) ImGui::Separator();
+    drawPanelHeader(state, "Bingo", kMine, subtitle, canClick, false, &c.bingoPanel, &c.bingoMin);
+    if (!c.bingoMin) {
+      if (!state.hits.empty() || (state.inRace && state.raceState < 0)) {
+        drawBingoHits(state, canClick);
+        if (board.loaded) ImGui::Separator();
+      }
+      if (board.loaded && !state.selectedBoard.empty()) drawPanelBoard(state, canClick);
     }
-    if (board.loaded && !state.selectedBoard.empty()) drawPanelBoard(state, canClick);
+    // A toast is the answer to something just pressed, so it shows either way.
     drawToast(state.bingoToast, state.bingoToastUntil);
     s_width = ImGui::GetWindowSize().x;
     rememberWindow(c.bingoX, c.bingoY, c.bingoW, c.bingoH, canClick);
@@ -1555,7 +1577,7 @@ void drawPanel(const State& state) {
     // one would be, so it starts beside it rather than on top of nothing.
   } else if (ImGui::Begin("100% TMX###tmx-panel", nullptr, panelFlags(canClick))) {
     ImGui::SetWindowFontScale(scale);
-    drawPanelHeader(state, "100% TMX", kAccentHi, std::string(), canClick, true, &config().overlay);
+    drawPanelHeader(state, "100% TMX", kAccentHi, std::string(), canClick, true, &c.overlay, &c.overlayMin);
     drawPairing("panel-pairing", canClick);
 
     if (state.linking) {
@@ -1566,7 +1588,7 @@ void drawPanel(const State& state) {
       ImGui::TextColored(kMine, "%s", state.userCode.c_str());
       ImGui::PopFont();
       ImGui::Separator();
-    } else if (!state.linked) {
+    } else if (!state.linked && !c.overlayMin) {
       ImGui::TextColored(kMuted, "Not connected");
       if (canClick && button("Connect", Tone::Primary)) {
         shared().write([](State& s) { s.linkError.clear(); });
@@ -1575,7 +1597,7 @@ void drawPanel(const State& state) {
       ImGui::Separator();
     }
 
-    drawPanelMap(state, canClick);
+    if (!c.overlayMin) drawPanelMap(state, canClick);
     drawToast(state.toast, state.toastUntil);
 
     g_panelPos = ImGui::GetWindowPos();

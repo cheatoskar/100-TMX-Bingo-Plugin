@@ -46,8 +46,18 @@ if (-not $packaging) {
   if (Test-Path $old) { Remove-Item $old -Recurse -Force }
   Get-ChildItem "$loader\database\TmForever\profiles" -Filter *.yaml -ErrorAction SilentlyContinue | ForEach-Object {
     $text = Get-Content $_.FullName -Raw
+    $was = $text
     if ($text -match "id: 100TMX") {
-      ($text -replace "id: 100TMX(\r?\n)", "id: '100% TMX + Bingo'`$1") | Set-Content $_.FullName -Encoding utf8 -NoNewline
+      $text = $text -replace "id: 100TMX(\r?\n)", "id: '100% TMX + Bingo'`$1"
+    }
+    # The ModLoader writes a version under a ticked mod once somebody picks one
+    # in its list, and from then on loads that version and no other. Installing
+    # a newer one beside it changed nothing in game - the old DLL kept loading,
+    # with no hint anywhere. So a pin follows the install.
+    $text = $text -replace "(id: '?100% TMX \+ Bingo'?\r?\n\s+version:\s*)[^\r\n]+", "`${1}$Version"
+    if ($text -ne $was) {
+      [System.IO.File]::WriteAllText($_.FullName, $text, (New-Object System.Text.UTF8Encoding $false))
+      Write-Host "Profile $($_.Name) now loads $Version"
     }
   }
 }
@@ -80,5 +90,5 @@ Copy-Item $Dll "$target\100TMX.dll" -Force
 Write-Host "Installed 100% TMX + Bingo $Version to:" -ForegroundColor Green
 Write-Host "  $target"
 Write-Host ""
-Write-Host "Now open the ModLoader, tick \"100% TMX + Bingo\" in the list, and start the game."
+Write-Host 'Now open the ModLoader, tick "100% TMX + Bingo" in the list, and start the game.'
 Write-Host "In game: F9 -> Connection -> Connect."
