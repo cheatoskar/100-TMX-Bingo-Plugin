@@ -19,7 +19,7 @@ namespace {
 DWORD WINAPI boot(LPVOID) {
   char exe[MAX_PATH]{};
   GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  tmx::log::line("boot thread: 100TMX %s, host is %s", TMX_VERSION_A, exe);
+  tmx::log::line("boot thread: 100TMX %s (built %s %s), host is %s", TMX_VERSION_A, __DATE__, __TIME__, exe);
 
   // Before anything else: the game asks d3d9 for its factory early, and the
   // only way to see the device it actually draws with is to be in place when

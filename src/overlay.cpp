@@ -382,6 +382,13 @@ void pollKeyCapture() {
 // top, so it may take the property over at any time; this one only takes it
 // when it is free.
 const wchar_t* kMouseOwner = L"TMMods.MouseOwner";
+// Who drew last, and so is on top on screen. Every overlay writes its module
+// here when it renders; read at the start of the next frame it names the one
+// whose windows cover the others'. Only that one may take the mouse from an
+// owner that got there first - otherwise a window drawn over another mod's
+// menu stays dead because the menu underneath was hovered a moment earlier.
+const wchar_t* kTopOverlay = L"TMMods.TopOverlay";
+bool g_weAreTop = false;
 
 HANDLE selfHandle() {
   static HANDLE s_self = nullptr;
@@ -408,7 +415,7 @@ void publishMouseOwner() {
   if (!g_window) return;
   const bool want = ImGui::GetIO().WantCaptureMouse && interactive();
   HANDLE owner = GetPropW(g_window, kMouseOwner);
-  if (want && !owner) {
+  if (want && (!owner || (owner != selfHandle() && g_weAreTop))) {
     SetPropW(g_window, kMouseOwner, selfHandle());
   } else if (!want && owner == selfHandle()) {
     RemovePropW(g_window, kMouseOwner);
@@ -2559,11 +2566,12 @@ void draw(IDirect3DDevice9* device) {
   pollKeyCapture();
   // The bare key only: TM Vibrant Shaders reloads its shaders on Ctrl+F9, and
   // that press must not also open this menu.
+  // Decided once, when the key goes down: letting go of Ctrl while F9 is still
+  // held must not turn that Ctrl+F9 into an F9.
   const bool modifier = (GetAsyncKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_MENU) & 0x8000) ||
                         (GetAsyncKeyState(VK_SHIFT) & 0x8000);
-  const bool down = !g_capturingKey && gameHasFocus() && !modifier &&
-                    (GetAsyncKeyState(config().toggleKey) & 0x8000) != 0;
-  if (down && !g_toggleHeld) {
+  const bool down = !g_capturingKey && gameHasFocus() && (GetAsyncKeyState(config().toggleKey) & 0x8000) != 0;
+  if (down && !g_toggleHeld && !modifier) {
     g_uiOpen = !g_uiOpen;
     log::line("toggle key: window %s", g_uiOpen ? "open" : "closed");
   }
@@ -2612,6 +2620,8 @@ void draw(IDirect3DDevice9* device) {
     else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
   }
 
+  g_weAreTop = g_window && GetPropW(g_window, kTopOverlay) == selfHandle();
+
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
@@ -2622,6 +2632,7 @@ void draw(IDirect3DDevice9* device) {
   ImGui::EndFrame();
   ImGui::Render();
   ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+  if (g_window && ImGui::GetDrawData()->TotalVtxCount > 0) SetPropW(g_window, kTopOverlay, selfHandle());
   publishMouseOwner();
 }
 
@@ -2638,6 +2649,7 @@ void shutdown() {
   textures::releaseAll();
   if (g_window) {
     if (GetPropW(g_window, kMouseOwner) == selfHandle()) RemovePropW(g_window, kMouseOwner);
+    if (GetPropW(g_window, kTopOverlay) == selfHandle()) RemovePropW(g_window, kTopOverlay);
     // Only put the old procedure back if ours is still the one installed.
     // Another mod that subclassed after us sits on top, and writing over it
     // would cut it out of the chain - its own unhooking would then restore a
@@ -2672,7 +2684,13 @@ LRESULT CALLBACK wndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     if (mouse && foreignOwnsMouse(window)) {
       // Another overlay has the pointer: its window is the one under it. Ours
       // must not light up or take the click, so ImGui is told the pointer left.
-      if (message == WM_MOUSEMOVE) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+      // Unless ours is drawn on top: then ImGui still follows the pointer, so
+      // it can notice it is over one of our windows and take the mouse over
+      // on the next frame. Nothing is swallowed meanwhile.
+      if (message == WM_MOUSEMOVE) {
+        if (g_weAreTop) ImGui_ImplWin32_WndProcHandler(window, message, wparam, lparam);
+        else ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+      }
       // Except the release of a press we took before it did: that one is
       // still ours, or the game sees a button come up it never saw go down.
       const int up = message == WM_LBUTTONUP ? 0 : message == WM_RBUTTONUP ? 1 : message == WM_MBUTTONUP ? 2 :
