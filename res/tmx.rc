@@ -1,0 +1,4 @@
+// Pictures that ship inside the DLL. See textures::embedded().
+#include "../src/resources.h"
+
+TMX_RES_LOGO RCDATA "logo.png"

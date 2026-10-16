@@ -32,6 +32,7 @@
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 #include "state.h"
+#include "resources.h"
 #include "textures.h"
 #include "worker.h"
 
@@ -826,8 +827,8 @@ int tileGrid(const State& state, const BoardView& board, float width, bool click
       } else {
         ImGui::TextColored(kMuted, "unclaimed");
       }
-      if (here) ImGui::TextColored(kOpen, "You are on this map.");
-      if (clickable) ImGui::TextColored(kMuted, "Click for its map and buttons.");
+      if (here) ImGui::TextColored(kOpen, "Current map");
+      if (clickable) ImGui::TextColored(kMuted, "Click for details");
       ImGui::EndTooltip();
     }
   }
@@ -894,7 +895,7 @@ void drawStanding(const BoardView& board, int maxRows) {
     return;
   }
   if (board.ladder.empty()) {
-    ImGui::TextColored(kMuted, "Nobody has taken a tile yet.");
+    ImGui::TextColored(kMuted, "No tiles claimed yet");
     return;
   }
   int place = 0;
@@ -919,7 +920,7 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
   ImGui::PushID(id);
   ImGui::PushID(tile.idx);
   if (button("Play this map", Tone::Primary)) pushCommand(Command::Kind::Play, tile.playUrl);
-  if (ImGui::IsItemHovered()) ImGui::SetTooltip("TrackMania downloads it from TMX and starts it.");
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Download from TMX and start");
 
   if (board.selfReported()) {
     // Nothing to upload and nothing to check: the board takes a time, and the
@@ -936,7 +937,7 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
       // measured, or from the replay file on the website - never from a
       // button. A mark with no time on it is exactly the typed-in claim that
       // setting exists to rule out, so it is not offered.
-      ImGui::TextColored(kMuted, "Finish this map to take it - the time comes from the game.");
+      ImGui::TextColored(kMuted, "Finish the map to claim this tile.");
     } else {
       // A "no check" board takes a time typed on the website, so it takes one
       // typed here too - the same self-reporting the board already
@@ -946,8 +947,8 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
       // the same box, and only on a tile nobody holds.
       static char s_time[16] = "";
       static std::string s_error;
-      sameLineIfRoom("Enter my time...");
-      if (button("Enter my time...")) {
+      sameLineIfRoom("Enter time...");
+      if (button("Enter time...")) {
         s_time[0] = '\0';
         s_error.clear();
         ImGui::OpenPopup("##entertime");
@@ -960,19 +961,19 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
         if (tile.held && tile.holderTime > 0) {
           ImGui::TextColored(kMuted, "To beat: %s", timeString(tile.holderTime).c_str());
         }
-        ImGui::TextColored(kMuted, "Your time, like 1:23.45 or 83.45");
+        ImGui::TextColored(kMuted, "Time (e.g. 1:23.45)");
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(140.0f * g_scale);
         const bool entered = ImGui::InputTextWithHint("##time", "0:00.00", s_time, sizeof(s_time),
                                                       ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::SameLine();
-        if (button("Take the tile", Tone::Good) || entered) {
+        if (button("Claim", Tone::Good) || entered) {
           const int ms = parseTimeMs(s_time);
           if (ms < 0) {
-            s_error = "That is not a time.";
+            s_error = "Invalid time";
           } else if (tile.held && tile.holderTime > 0 && ms >= tile.holderTime) {
             // The site would refuse it; saying so here saves the round trip.
-            s_error = "Not faster than " + timeString(tile.holderTime) + ".";
+            s_error = "Must beat " + timeString(tile.holderTime);
           } else {
             pushCommand(Command::Kind::Check, board.id, tile.idx, ms);
             ImGui::CloseCurrentPopup();
@@ -981,12 +982,12 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
         if (!s_error.empty()) ImGui::TextColored(kWarn, "%s", s_error.c_str());
         ImGui::Separator();
         if (!tile.held) {
-          if (button("Mark it without a time")) {
+          if (button("Claim without time")) {
             pushCommand(Command::Kind::Check, board.id, tile.idx, 0);
             ImGui::CloseCurrentPopup();
           }
           if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Nobody holds it, so it can be held at no time - until anybody finishes the map.");
+            ImGui::SetTooltip("Unclaimed tiles only. Any finish replaces it.");
           }
           ImGui::SameLine();
         }
@@ -995,13 +996,13 @@ void drawTileActions(const State& state, const BoardView& board, const Tile& til
       }
     }
   } else {
-    sameLineIfRoom("I uploaded it");
-    if (button("I uploaded it", Tone::Good)) pushCommand(Command::Kind::Check, board.id, tile.idx);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The site reads your replay on TMX and takes the tile if it is faster.");
+    sameLineIfRoom("Verify replay");
+    if (button("Verify replay", Tone::Good)) pushCommand(Command::Kind::Check, board.id, tile.idx);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Checks your replay on TMX and claims the tile if it is faster.");
     if (!tile.uploadUrl.empty()) {
       sameLineIfRoom("Upload page");
       if (button("Upload page")) pushCommand(Command::Kind::OpenUrl, tile.uploadUrl);
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Opens the map's replay upload on TMX in your browser.");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the TMX upload page");
     }
   }
   ImGui::PopID();
@@ -1027,9 +1028,9 @@ void drawTileDetail(const State& state, const BoardView& board, const Tile& tile
     const ImVec4 tone = tile.mine || tile.ourTeam ? kMine : fromU32(tile.holderColor, kTaken);
     ImGui::TextColored(tone, "%s holds it at %s", tile.mine ? "You" : tile.ourTeam ? "Your team" : tile.holderName.c_str(),
                        timeString(tile.holderTime).c_str());
-    if (tile.ourTeam && !tile.mine) ImGui::TextColored(kMuted, "Beating it wins your side nothing.");
+    if (tile.ourTeam && !tile.mine) ImGui::TextColored(kMuted, "Held by your team");
   } else {
-    ImGui::TextColored(kMuted, "Nobody holds it yet.");
+    ImGui::TextColored(kMuted, "Unclaimed");
   }
   if (canClick) {
     ImGui::Spacing();
@@ -1075,18 +1076,18 @@ void drawHit(const State& state, const BoardHit& hit, const char* id, bool canCl
     if (wouldTake && canClick) {
       const std::string label = "Take the tile with " + timeString(state.raceTimeMs);
       if (button(label.c_str(), Tone::Good)) pushCommand(Command::Kind::Check, hit.boardId, hit.idx, state.raceTimeMs);
-      if (!config().autoSubmitSelfReported) ImGui::TextColored(kMuted, "Settings: do this automatically");
+      if (!config().autoSubmitSelfReported) ImGui::TextColored(kMuted, "Auto-submit is off (Settings)");
     } else if (finished && hit.held && !wouldTake) {
-      ImGui::TextColored(kMuted, "Not faster than the tile.");
+      ImGui::TextColored(kMuted, "Slower than the holder");
     } else if (!finished) {
-      ImGui::TextColored(kMuted, "Finish the map to put your time on this tile.");
+      ImGui::TextColored(kMuted, "Finish to claim");
     }
     // Taking a tile with *no time on it* lives in one place only - the tile's
     // own detail, where it asks first. Offered here it sat a centimetre from
     // "take the tile with 13.91" and got pressed out of reflex.
   } else {
-    if (finished) ImGui::TextColored(kMuted, "Upload the replay to TMX, then press \"I uploaded it\".");
-    if (canClick && button("I uploaded it", Tone::Good)) pushCommand(Command::Kind::Check, hit.boardId, hit.idx);
+    if (finished) ImGui::TextColored(kMuted, "Upload the replay to TMX, then verify.");
+    if (canClick && button("Verify replay", Tone::Good)) pushCommand(Command::Kind::Check, hit.boardId, hit.idx);
   }
 
   ImGui::PopID();
@@ -1117,7 +1118,7 @@ void drawRun(const State& state, const char* id, bool canClick) {
     if (canClick && button("Upload the replay to TMX", Tone::Primary)) {
       pushCommand(Command::Kind::OpenUrl, state.map.uploadUrl);
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Opens this map's upload page in your browser.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the TMX upload page");
   }
   ImGui::PopID();
 }
@@ -1132,16 +1133,16 @@ void drawPairing(const char* id, bool canClick) {
   ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f * g_scale);
   ImGui::BeginChild("pairing", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-  ImGui::TextColored(kMine, "A browser wants to connect");
-  muted("Allow it to collect finished replays and upload them to TMX as you.");
+  ImGui::TextColored(kMine, "Pairing request");
+  muted("The browser extension wants to upload your replays to TMX.");
   if (canClick) {
     if (button("Allow", Tone::Good)) bridge::approvePairing();
     // Apart, not side by side: the two answers to this question should never
     // be one slip of the mouse from each other.
     ImGui::SameLine(0.0f, 24.0f * g_scale);
-    if (button("Not now")) bridge::refusePairing();
+    if (button("Deny")) bridge::refusePairing();
   } else {
-    ImGui::TextColored(kMuted, "Press %s to answer.", keyName(config().toggleKey).c_str());
+    ImGui::TextColored(kMuted, "Press %s to respond", keyName(config().toggleKey).c_str());
   }
   ImGui::EndChild();
   ImGui::PopStyleVar();
@@ -1187,28 +1188,34 @@ const Tile* tileAt(const BoardView& board, int idx) {
 // one is simply absent without a board or a tile under the wheels.
 
 /**
- * Where a panel goes: placed by us at start, after "put it back", and when the
- * screen size changes; after that the window owns its position, so a drag is
- * not fought by a SetNextWindowPos on the very next frame. Pulled back on
- * screen if the resolution shrank since it was saved - a panel parked off the
- * edge looks exactly like the mod being broken.
+ * Where a panel goes, and how big it is.
+ *
+ * The position is set by us at start, after a reset, and when the screen size
+ * changes; after that the window owns it, so a drag is not fought by a
+ * SetNextWindowPos on the very next frame. Pulled back on screen if the
+ * resolution shrank since it was saved - a panel parked off the edge looks
+ * exactly like the mod being broken.
+ *
+ * The width is the player's (drag the corner); the height is the content's.
+ * A fixed height was either too short - a finish time and its buttons cut off
+ * at the bottom - or a block of empty panel over the track. Taller than the
+ * screen, it stops at the edge and scrolls with the wheel.
  */
-void placeWindow(bool& place, float x, float y, float w, float h, ImVec2 fallbackPos, ImVec2 fallbackSize) {
+void placeWindow(bool& place, float x, float y, float savedW, float& width, ImVec2 fallbackPos, float fallbackW) {
   const ImGuiIO& io = ImGui::GetIO();
+  const float margin = 16.0f * g_scale;
   if (place && io.DisplaySize.x > 0) {
     place = false;
-    const float margin = 16.0f * g_scale;
-    ImVec2 size = w > 80 && h > 80 ? ImVec2(w, h) : fallbackSize;
-    size.x = std::min(size.x, io.DisplaySize.x - margin * 2.0f);
-    size.y = std::min(size.y, io.DisplaySize.y - margin * 2.0f);
+    width = std::min(savedW > 80 ? savedW : fallbackW, io.DisplaySize.x - margin * 2.0f);
     ImVec2 position = x >= 0 && y >= 0 ? ImVec2(x, y) : fallbackPos;
-    position.x = std::clamp(position.x, 0.0f, std::max(0.0f, io.DisplaySize.x - size.x));
+    position.x = std::clamp(position.x, 0.0f, std::max(0.0f, io.DisplaySize.x - width));
     position.y = std::clamp(position.y, 0.0f, std::max(0.0f, io.DisplaySize.y - 60.0f * g_scale));
     ImGui::SetNextWindowPos(position, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
   }
-  ImGui::SetNextWindowSizeConstraints(ImVec2(200.0f * g_scale, 100.0f * g_scale),
-                                      ImVec2(1600.0f * g_scale, 2000.0f * g_scale));
+  if (width <= 0) width = fallbackW;
+  ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);  // 0: fit the content
+  ImGui::SetNextWindowSizeConstraints(ImVec2(220.0f * g_scale, 0.0f),
+                                      ImVec2(1600.0f * g_scale, std::max(200.0f, io.DisplaySize.y - margin * 2.0f)));
   ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
 }
 
@@ -1226,17 +1233,17 @@ void rememberWindow(float& x, float& y, float& w, float& h, bool canClick) {
   }
 }
 
-// The scrollbar is always reserved, and thin. Without it a panel oscillates:
-// content grows past the height, a scrollbar appears, the bar narrows the wrap
-// width of every wrapped line, the text gets taller, and on the frame it is
-// not needed the whole thing snaps back - which reads as the widget shaking.
+// No scrollbar: the height follows the content, so there is nothing to scroll
+// but a panel taller than the screen, and the wheel does that. A bar that
+// appears and disappears would also change the wrap width of every line in
+// it, and the panel would shake.
 //
 // Click-through until it may take the mouse: while driving it is a readout,
 // and a window that eats the mouse in a racing game is a bug, not a feature.
 ImGuiWindowFlags panelFlags(bool canClick) {
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings |
                            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar;
+                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
   if (!canClick) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
   return flags;
 }
@@ -1245,17 +1252,27 @@ ImGuiWindowFlags panelFlags(bool canClick) {
 // on the right the connection dot and (when it takes the mouse) the way into
 // the menu.
 void drawPanelHeader(const State& state, const char* title, const ImVec4& colour, const std::string& subtitle,
-                     bool canClick) {
+                     bool canClick, bool logo, bool* shown) {
   ImDrawList* draw = ImGui::GetWindowDrawList();
   const float fs = ImGui::GetFontSize();
-  const ImVec2 p = ImGui::GetCursorScreenPos();
+  ImVec2 p = ImGui::GetCursorScreenPos();
   const float h = fs * 1.15f;
-  const float right = ImGui::GetWindowContentRegionMax().x;
+  if (void* mark = logo ? textures::embedded(TMX_RES_LOGO) : nullptr) {
+    const float side = h * 1.15f;
+    const ImVec2 at(p.x, p.y + (h - side) * 0.5f);
+    draw->AddImageRounded(reinterpret_cast<ImTextureID>(mark), at, ImVec2(at.x + side, at.y + side), ImVec2(0, 0),
+                          ImVec2(1, 1), IM_COL32_WHITE, 3.0f * g_scale);
+    ImGui::Dummy(ImVec2(side, h));
+    ImGui::SameLine(0.0f, fs * 0.4f);
+    p = ImGui::GetCursorScreenPos();
+  }
   const float button = h;
+  // The close button takes the right edge; everything else moves over for it.
+  const float right = ImGui::GetWindowContentRegionMax().x - (canClick && shown ? button + fs * 0.2f : 0.0f);
   draw->AddText(g_fontTitle, h, p, col(colour), title);
   const float titleW = g_fontTitle->CalcTextSizeA(h, FLT_MAX, 0.0f, title).x;
   if (!subtitle.empty()) {
-    const ImVec4 clip(p.x, p.y, p.x + right - button - fs * 1.6f, p.y + h);
+    const ImVec4 clip(p.x, p.y, ImGui::GetWindowPos().x + right - button - fs * 1.6f, p.y + h);
     draw->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(p.x + titleW + fs * 0.4f, p.y + h - fs * 0.95f), col(kMuted),
                   subtitle.c_str(), nullptr, 0.0f, &clip);
   }
@@ -1285,6 +1302,24 @@ void drawPanelHeader(const State& state, const char* title, const ImVec4& colour
       draw->AddLine(ImVec2(at.x + button * 0.22f, y), ImVec2(at.x + button * 0.78f, y), bars, 2.0f * g_scale);
     }
   }
+  if (canClick && shown) {
+    // Close: the panel stays off until it is switched on again in the menu.
+    ImGui::SameLine(right + fs * 0.2f);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    if (ImGui::InvisibleButton("close", ImVec2(button, h))) {
+      *shown = false;
+      config().save();
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered) {
+      draw->AddRectFilled(at, ImVec2(at.x + button, at.y + h), col(ImVec4(0.85f, 0.16f, 0.16f, 0.85f)), 4.0f * g_scale);
+      ImGui::SetTooltip("Hide this panel (%s > Settings to show it again)", keyName(config().toggleKey).c_str());
+    }
+    const float m = button * 0.3f;
+    const ImU32 cross = hovered ? IM_COL32_WHITE : col(kMuted);
+    draw->AddLine(ImVec2(at.x + m, at.y + m), ImVec2(at.x + button - m, at.y + h - m), cross, 2.0f * g_scale);
+    draw->AddLine(ImVec2(at.x + button - m, at.y + m), ImVec2(at.x + m, at.y + h - m), cross, 2.0f * g_scale);
+  }
   ImGui::Spacing();
 }
 
@@ -1296,17 +1331,17 @@ void drawPanelMap(const State& state, bool canClick) {
     // the menus there is no map to check the addresses against, so calling that
     // "not recognised" accuses the build of something it has not done yet.
     if (!state.sawMap) {
-      ImGui::TextColored(kMuted, "Waiting for a map.");
-      muted("Load any map once and the mod confirms it can read this build.");
+      ImGui::TextColored(kMuted, "Waiting for a map");
+      muted("Load a map to check game compatibility.");
     } else {
-      ImGui::TextColored(kWarn, "This TrackMania build is not recognised.");
+      ImGui::TextColored(kWarn, "Unsupported game build");
       ImGui::TextColored(kMuted, "build %s", state.buildKey.c_str());
-      muted("Nothing is being read or sent. Report that build id and it can be added.");
+      muted("Nothing is read or sent. Report the build ID to get it supported.");
     }
     return;
   }
   if (!state.inRace) {
-    ImGui::TextColored(kMuted, "In the menus.");
+    ImGui::TextColored(kMuted, "In menus");
     return;
   }
 
@@ -1320,7 +1355,7 @@ void drawPanelMap(const State& state, bool canClick) {
     ImGui::TextWrapped("%s", name.empty() ? "(unnamed map)" : name.c_str());
     ImGui::PopFont();
     if (!map.onExchange) {
-      ImGui::TextColored(kMuted, "Not on an exchange.");
+      ImGui::TextColored(kMuted, "Not on TMX");
       return;
     }
     ImGui::TextColored(verdictOf(map).colour, "%s", verdictOf(map).line.c_str());
@@ -1365,8 +1400,8 @@ void drawBingoHits(const State& state, bool canClick) {
   // impossible, so it is said once rather than left to look like the board
   // ignoring them.
   if (state.inRace && state.raceState < 0) {
-    ImGui::TextColored(kWarn, "Cannot read this build's race state (%s)", raceStepName(state.raceStep));
-    muted("Times cannot be filled in for you. Take tiles from the website, or report the build.");
+    ImGui::TextColored(kWarn, "Race state unavailable (%s)", raceStepName(state.raceStep));
+    muted("Tiles cannot be filled in automatically. Use the website.");
   }
   bool first = true;
   for (const BoardHit& hit : state.hits) {
@@ -1382,8 +1417,8 @@ void drawBoardNotes(const BoardView& board) {
   // A board past its end still loads - it is remembered by id - so it has to
   // say so, or it reads as a live board that ignores every finish.
   if (board.closed()) {
-    ImGui::TextColored(kWarn, "Closed - ended %s", board.endsAt.substr(0, 10).c_str());
-    muted("Pick a running board in the menu (%s, Bingo).", keyName(config().toggleKey).c_str());
+    ImGui::TextColored(kWarn, "Closed %s", board.endsAt.substr(0, 10).c_str());
+    muted("Select an active board in the menu (%s > Bingo).", keyName(config().toggleKey).c_str());
   }
   if (board.myTeam > 0) {
     for (const TeamRow& team : board.teams) {
@@ -1392,14 +1427,14 @@ void drawBoardNotes(const BoardView& board) {
       break;
     }
   } else if (board.teamCount > 0) {
-    ImGui::TextColored(kWarn, "Teams - join a side on the website");
+    ImGui::TextColored(kWarn, "Team board - pick a side on the website");
   }
   if (board.gameOnly()) {
-    muted("Plugin and replay only: your time comes from here, or from a replay file on the website. Nothing is typed.");
+    muted("Game-verified: times come from the plugin or a replay file.");
   } else if (board.selfReported()) {
-    muted("No check: tiles are self-reported, TMX is not asked.");
+    muted("Self-reported: times are not checked against TMX.");
   } else {
-    muted("A tile is taken by a replay on TMX - drive, upload, then \"I uploaded it\".");
+    muted("TMX-verified: upload your replay, then verify.");
   }
 }
 
@@ -1439,10 +1474,13 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
     s_display = display;
     s_place = true;
   }
-  const float width = 300.0f * g_scale * scale;
+  // A little wider than the map panel: five tiles across at a size where the
+  // screenshots still read as maps.
+  const float width = 340.0f * g_scale * scale;
   const ImVec2 below(g_panelPos.x >= 0 ? g_panelPos.x : 16.0f * g_scale,
                      g_panelPos.x >= 0 ? g_panelPos.y + g_panelSize.y + 8.0f * g_scale : 400.0f * g_scale);
-  placeWindow(s_place, c.bingoX, c.bingoY, c.bingoW, c.bingoH, below, ImVec2(width, 460.0f * g_scale * scale));
+  static float s_width = 0.0f;
+  placeWindow(s_place, c.bingoX, c.bingoY, c.bingoW, s_width, below, width);
 
   ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 6.0f * g_scale);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * g_scale, 10.0f * g_scale));
@@ -1450,13 +1488,14 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
     ImGui::SetWindowFontScale(scale);
     const BoardView& board = state.board;
     const std::string subtitle = board.loaded ? (board.title.empty() ? board.id : board.title) : std::string();
-    drawPanelHeader(state, "Bingo", kMine, subtitle, canClick);
+    drawPanelHeader(state, "Bingo", kMine, subtitle, canClick, false, &config().bingoPanel);
     if (!state.hits.empty() || (state.inRace && state.raceState < 0)) {
       drawBingoHits(state, canClick);
       if (board.loaded) ImGui::Separator();
     }
     if (board.loaded && !state.selectedBoard.empty()) drawPanelBoard(state, canClick);
     drawToast(state.bingoToast, state.bingoToastUntil);
+    s_width = ImGui::GetWindowSize().x;
     rememberWindow(c.bingoX, c.bingoY, c.bingoW, c.bingoH, canClick);
   }
   ImGui::End();
@@ -1493,28 +1532,35 @@ void drawPanel(const State& state) {
     g_placePanel = true;
   }
   const bool placing = g_placePanel;
-  const float height = (c.panelImages ? 400.0f : 230.0f) * g_scale * scale;
-  placeWindow(g_placePanel, c.overlayX, c.overlayY, c.overlayW, c.overlayH,
+  static float s_width = 0.0f;
+  placeWindow(g_placePanel, c.overlayX, c.overlayY, c.overlayW, s_width,
               ImVec2(c.overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin, margin + 80.0f * g_scale),
-              ImVec2(width, height));
+              width);
 
   ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 6.0f * g_scale);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * g_scale, 10.0f * g_scale));
-  if (ImGui::Begin("100% TMX###tmx-panel", nullptr, panelFlags(canClick))) {
+  // A pairing request or a linking code is shown even on a hidden panel: it
+  // is the one place either appears, and a question nobody can see is one
+  // the browser waits on forever.
+  const bool visible = c.overlay || bridge::status().pairing || state.linking;
+  if (!visible) {
+    // Hidden: nothing drawn, but the Bingo panel below still knows where this
+    // one would be, so it starts beside it rather than on top of nothing.
+  } else if (ImGui::Begin("100% TMX###tmx-panel", nullptr, panelFlags(canClick))) {
     ImGui::SetWindowFontScale(scale);
-    drawPanelHeader(state, "100% TMX", kAccentHi, std::string(), canClick);
+    drawPanelHeader(state, "100% TMX", kAccentHi, std::string(), canClick, true, &config().overlay);
     drawPairing("panel-pairing", canClick);
 
     if (state.linking) {
       // The code goes where the eyes are. The menu has it too, but somebody
       // who pressed Connect is looking at the panel.
-      ImGui::TextColored(kMuted, "Type this code at %s", state.verifyUrl.c_str());
+      ImGui::TextColored(kMuted, "Enter this code at %s", state.verifyUrl.c_str());
       ImGui::PushFont(g_fontBig);
       ImGui::TextColored(kMine, "%s", state.userCode.c_str());
       ImGui::PopFont();
       ImGui::Separator();
     } else if (!state.linked) {
-      ImGui::TextColored(kMuted, "Not connected to 100tmx.com.");
+      ImGui::TextColored(kMuted, "Not connected");
       if (canClick && button("Connect", Tone::Primary)) {
         shared().write([](State& s) { s.linkError.clear(); });
         pushCommand(Command::Kind::Connect);
@@ -1527,23 +1573,86 @@ void drawPanel(const State& state) {
 
     g_panelPos = ImGui::GetWindowPos();
     g_panelSize = ImGui::GetWindowSize();
+    s_width = g_panelSize.x;
     g_panelCentreX = g_panelPos.x + g_panelSize.x * 0.5f;
     rememberWindow(c.overlayX, c.overlayY, c.overlayW, c.overlayH, canClick);
   }
-  ImGui::End();
+  if (visible) ImGui::End();
   ImGui::PopStyleVar(2);
 
   // Shown for a selected board, and for a map that is a tile on a board that
   // is not the one selected - that tile still wants its time.
   if (placing) g_placePanel = true;  // the Bingo panel is placed in the same pass
-  if (showBoard || !state.hits.empty()) drawBingoPanel(state, canClick, scale);
+  if (c.bingoPanel && (showBoard || !state.hits.empty())) drawBingoPanel(state, canClick, scale);
   g_placePanel = false;
 }
 
 // ------------------------------------------------------------------ the menu
 
+// The exchange's top ten for this map: medal colours for the podium, the gap
+// to the record for the rest, and where your last run would have placed.
+void drawTopTen(const State& state) {
+  const TopTen& top = state.top;
+  if (top.rows.empty()) {
+    if (top.loading) muted("Loading...");
+    else if (!top.error.empty()) ImGui::TextColored(kWarn, "%s", top.error.c_str());
+    else muted("No replays on TMX yet.");
+    return;
+  }
+  static const ImVec4 kMedal[3] = {ImVec4(0.98f, 0.80f, 0.25f, 1.0f), ImVec4(0.78f, 0.80f, 0.86f, 1.0f),
+                                   ImVec4(0.86f, 0.56f, 0.32f, 1.0f)};
+  const int record = top.rows.front().timeMs;
+  const int mine = state.raceState == 2 && state.raceTimeMs > 0 ? state.raceTimeMs : 0;
+  bool placed = false;
+
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  const float width = ImGui::GetContentRegionAvail().x;
+  const float row = ImGui::GetTextLineHeight() + 6.0f * g_scale;
+  const float timeW = ImGui::CalcTextSize("0:00.00").x;
+  const float gapW = ImGui::CalcTextSize("+00.00").x;
+  auto line = [&](const char* rank, const ImVec4& rankColour, const std::string& name, int ms, const ImVec4& nameColour,
+                  bool highlight) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    if (highlight) {
+      draw->AddRectFilled(p, ImVec2(p.x + width, p.y + row), col(kMine, 0.14f), 4.0f * g_scale);
+    }
+    const float y = p.y + 3.0f * g_scale;
+    draw->AddText(ImVec2(p.x + 6.0f * g_scale, y), col(rankColour), rank);
+    const float nameX = p.x + 6.0f * g_scale + ImGui::CalcTextSize("10").x + 10.0f * g_scale;
+    const float right = p.x + width - 6.0f * g_scale;
+    const ImVec4 clip(nameX, p.y, right - timeW - gapW - 12.0f * g_scale, p.y + row);
+    draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(nameX, y), col(nameColour), name.c_str(), nullptr,
+                  0.0f, &clip);
+    const std::string time = timeString(ms);
+    draw->AddText(ImVec2(right - ImGui::CalcTextSize(time.c_str()).x, y), col(ImVec4(1, 1, 1, 0.95f)), time.c_str());
+    if (ms > record) {
+      char gap[24];
+      sprintf_s(gap, sizeof(gap), "+%.2f", (ms - record) / 1000.0);
+      draw->AddText(ImVec2(right - timeW - 8.0f * g_scale - ImGui::CalcTextSize(gap).x, y), col(kMuted), gap);
+    }
+    ImGui::Dummy(ImVec2(width, row));
+  };
+
+  for (const TopRow& r : top.rows) {
+    if (mine && !placed && mine < r.timeMs) {
+      placed = true;
+      line(">", kMine, "Your run", mine, kMine, true);
+    }
+    char rank[8];
+    sprintf_s(rank, sizeof(rank), "%d", r.position);
+    const ImVec4 rankColour = r.position <= 3 ? kMedal[r.position - 1] : kMuted;
+    line(rank, rankColour, r.name, r.timeMs, r.position <= 3 ? ImVec4(1, 1, 1, 0.95f) : ImVec4(1, 1, 1, 0.80f), false);
+    if (ImGui::IsItemHovered() && !r.at.empty()) ImGui::SetTooltip("Driven %s", r.at.c_str());
+  }
+  if (mine && !placed) {
+    ImGui::Spacing();
+    ImGui::TextColored(kMuted, "Your run %s - outside the top %d", timeString(mine).c_str(),
+                       static_cast<int>(top.rows.size()));
+  }
+}
+
 void drawPlayingPage(const State& state) {
-  pageTitle("Now playing", "The map you are on, what it is worth to the project, and the boards it is a tile of.");
+  pageTitle("Now playing", "Current map, your run, the TMX leaderboard and your bingo tiles.");
   if (!state.attached || !state.inRace) {
     Panel panel("This map");
     drawPanelMap(state, true);
@@ -1577,7 +1686,7 @@ void drawPlayingPage(const State& state) {
       ImGui::PushFont(g_fontTitle);
       ImGui::TextWrapped("%s", name.empty() ? "(unnamed map)" : name.c_str());
       ImGui::PopFont();
-      ImGui::TextColored(kMuted, "Not on an exchange - nothing to credit here.");
+      ImGui::TextColored(kMuted, "Not on TMX");
     }
   }
   columns.next();
@@ -1588,17 +1697,20 @@ void drawPlayingPage(const State& state) {
     } else if (state.raceState == 1) {
       ImGui::TextColored(kMuted, "Driving - %s", timeString(state.raceTimeMs).c_str());
     } else if (state.raceState == 0) {
-      ImGui::TextColored(kMuted, "At the start line.");
+      ImGui::TextColored(kMuted, "On the start line");
     } else {
-      ImGui::TextColored(kWarn, "Cannot read this build's race state (%s).", raceStepName(state.raceStep));
-      muted("Times cannot be filled in for you. The Status page says more.");
+      ImGui::TextColored(kWarn, "Race state unavailable (%s)", raceStepName(state.raceStep));
+      muted("See Status for details.");
     }
+  }
+  if (map.onExchange) {
+    Panel panel("TMX top 10");
+    drawTopTen(state);
   }
   {
     Panel panel("Boards");
     if (state.hits.empty()) {
-      muted(state.linked ? "This map is not a tile on any board you are in."
-                         : "Connect this machine to see the boards this map is on.");
+      muted(state.linked ? "Not on any of your boards." : "Connect to see your boards.");
     }
     bool first = true;
     for (const BoardHit& hit : state.hits) {
@@ -1679,17 +1791,17 @@ bool boardCard(const char* id, const std::string& title, const std::string& line
 }
 
 void drawBingoPage(const State& state) {
-  pageTitle("Bingo", "Pick the board the panel shows. Click a tile for its map, its holder and its buttons.");
+  pageTitle("Bingo", "Choose the board shown in the panel. Select a tile for details.");
   if (!state.linked) {
     Panel panel("Board");
-    muted("Connect this machine first - the boards you are in come from your account.");
+    muted("Connect this PC to load your boards.");
     if (button("Go to Connection", Tone::Primary)) config().menuPage = kConnection;
     return;
   }
 
   // The picker, as cards.
   if (chip("Refresh", false)) pushCommand(Command::Kind::RefreshBoards);
-  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Asks the site again for the boards you are in.");
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reload your boards");
   ImGui::SameLine();
   ImGui::AlignTextToFramePadding();
   ImGui::TextColored(kMuted, "%s",
@@ -1742,7 +1854,7 @@ void drawBingoPage(const State& state) {
 
   const BoardView& board = state.board;
   if (state.selectedBoard.empty() || !board.loaded) {
-    if (!state.selectedBoard.empty()) ImGui::TextColored(kMuted, "Loading the board...");
+    if (!state.selectedBoard.empty()) ImGui::TextColored(kMuted, "Loading board...");
     return;
   }
 
@@ -1763,7 +1875,7 @@ void drawBingoPage(const State& state) {
     if (const Tile* tile = tileAt(board, g_menuTile)) {
       drawTileDetail(state, board, *tile, "menu-tile", !board.closed());
     } else {
-      muted("Click a tile on the board.");
+      muted("Select a tile.");
     }
   }
   {
@@ -1773,7 +1885,7 @@ void drawBingoPage(const State& state) {
 }
 
 void drawConnectionPage(const State& state) {
-  pageTitle("Connection", "This machine speaks for the account you approve it with on 100tmx.com.");
+  pageTitle("Connection", "Account link and replay upload.");
   Columns columns(270.0f);
   {
     Panel panel("This machine");
@@ -1782,8 +1894,8 @@ void drawConnectionPage(const State& state) {
       ImGui::PushFont(g_fontBig);
       ImGui::TextColored(kMine, "%s", state.userCode.c_str());
       ImGui::PopFont();
-      muted("The browser should already be open on that page, signed in with Discord.");
-      if (button("Copy the code")) {
+      muted("Approve it in your browser (Discord sign-in).");
+      if (button("Copy code")) {
         ImGui::SetClipboardText(state.userCode.c_str());
         toastHere("Code copied.");
       }
@@ -1798,16 +1910,16 @@ void drawConnectionPage(const State& state) {
         pushCommand(Command::Kind::CancelLink);
       }
     } else if (state.linked) {
-      ImGui::TextColored(kOpen, "Connected.");
-      muted("Disconnect here or on the website - either way the token stops working at once.");
+      ImGui::TextColored(kOpen, "Connected");
+      muted("Disconnecting revokes this PC's token immediately.");
       if (button("Disconnect", Tone::Danger)) ImGui::OpenPopup("Disconnect this machine?");
       if (confirm("Disconnect this machine?",
-                  "Disconnect this machine from your account? Nothing more is sent, and you can connect again at any time.",
+                  "Disconnect this PC from your account? You can reconnect at any time.",
                   "Disconnect")) {
         pushCommand(Command::Kind::Disconnect);
       }
     } else {
-      muted("Connecting shows a code here and opens the website, where you approve it while signed in with Discord.");
+      muted("You get a code to approve on 100tmx.com (Discord sign-in).");
       if (button("Connect", Tone::Primary)) {
         shared().write([](State& s) { s.linkError.clear(); });
         pushCommand(Command::Kind::Connect);
@@ -1825,11 +1937,10 @@ void drawConnectionPage(const State& state) {
       // A notice, not a question - sharing is on by default. Still shown once
       // and in plain words, because a switch that sends something off the
       // machine should never be discovered rather than told.
-      ImGui::TextColored(kMine, "Just connected - one thing to know:");
+      ImGui::TextColored(kMine, "Privacy");
     }
-    muted("While you are on a map, its id is sent to the site so it can tell you the map's status. With sharing on, "
-          "the remaining list also shows you on that map, and drops you a few minutes after you stop. Nothing is "
-          "sent while you are in the menus.");
+    muted("The current map's ID is sent to look up its status. With sharing on, you also appear on that map in the "
+          "remaining list until a few minutes after you leave. Nothing is sent from the menus.");
     bool share = config().shareWhatIAmPlaying;
     if (switchRow("Share what I am playing", &share)) {
       config().shareWhatIAmPlaying = share;
@@ -1839,7 +1950,7 @@ void drawConnectionPage(const State& state) {
       pushCommand(share ? Command::Kind::ReportNow : Command::Kind::ReleaseAll);
     }
     if (state.linked && state.askSharing) {
-      if (button("Got it", Tone::Primary)) {
+      if (button("OK", Tone::Primary)) {
         shared().write([](State& s) { s.askSharing = false; });
         pushCommand(Command::Kind::ReportNow);
       }
@@ -1852,21 +1963,21 @@ void drawConnectionPage(const State& state) {
     // The only switch here that opens a socket, so what that means is said
     // right under it.
     bool bridgeOn = config().bridge;
-    if (switchRow("Upload my replays through the browser", &bridgeOn)) bridge::setEnabled(bridgeOn);
-    muted("After every finish that beats your own record, the replay TrackMania saved is offered to the 100%% TMX "
-          "browser extension, which uploads it to TMX signed in as you. Your TMX login never comes near this mod.");
+    if (switchRow("Upload replays via browser extension", &bridgeOn)) bridge::setEnabled(bridgeOn);
+    muted("New personal bests are handed to the 100%% TMX browser extension, which uploads them to TMX with your "
+          "session. The mod never sees your TMX login.");
     if (config().bridge) {
       const bridge::Status bridgeState = bridge::status();
       if (!bridgeState.running) {
-        ImGui::TextColored(kWarn, "No free port - is a second TrackMania running?");
+        ImGui::TextColored(kWarn, "No free port (second game running?)");
       } else if (bridgeState.paired) {
-        ImGui::TextColored(kOpen, "Listening on 127.0.0.1:%d - the browser has been here", bridgeState.port);
+        ImGui::TextColored(kOpen, "Listening on 127.0.0.1:%d - extension connected", bridgeState.port);
       } else {
         ImGui::TextColored(kMuted, "Listening on 127.0.0.1:%d - waiting for the extension", bridgeState.port);
       }
       // The key itself is not printed: it is a secret from the other programs
       // on this machine, and a streamed screen is one of them.
-      if (button("Copy the pairing key")) {
+      if (button("Copy pairing key")) {
         ImGui::SetClipboardText(config().copy(config().bridgeKey).c_str());
         toastHere("Key copied - paste it into the extension.");
       }
@@ -1875,7 +1986,7 @@ void drawConnectionPage(const State& state) {
                            bridgeState.queued == 1 ? "" : "s");
       }
       if (!bridgeState.lastResult.empty()) ImGui::TextColored(kMuted, "Last: %s", bridgeState.lastResult.c_str());
-      ImGui::TextColored(kMuted, "Needs autosaving on in TrackMania's replay settings.");
+      ImGui::TextColored(kMuted, "Requires replay autosave in TrackMania's settings.");
 
       // Two games, two folder names - Nations writes to Documents\TrackMania,
       // United to Documents\TmForever - and both are searched. This is for the
@@ -1886,7 +1997,7 @@ void drawConnectionPage(const State& state) {
         s_replayDirLoaded = true;
         strncpy_s(s_replayDir, sizeof(s_replayDir), config().copy(config().replayDir).c_str(), _TRUNCATE);
       }
-      ImGui::TextColored(kMuted, "Replay folder (empty: the usual places)");
+      ImGui::TextColored(kMuted, "Replay folder (blank = auto-detect)");
       ImGui::SetNextItemWidth(-1);
       ImGui::InputTextWithHint("##replaydir", "Documents\\TrackMania\\Tracks\\Replays\\Autosaves", s_replayDir,
                                sizeof(s_replayDir));
@@ -1901,38 +2012,42 @@ void drawConnectionPage(const State& state) {
 }
 
 void drawSettingsPage(const State& state) {
-  pageTitle("Settings", "Everything here is saved as you change it.");
+  pageTitle("Settings", "Changes are saved immediately.");
   Columns columns(270.0f);
   {
     Panel panel("Bingo");
     bool autoSubmit = config().autoSubmitSelfReported;
-    if (switchRow("Put my finish straight onto self-reported boards", &autoSubmit)) {
+    if (switchRow("Auto-submit finishes", &autoSubmit)) {
       config().autoSubmitSelfReported = autoSubmit;
       config().save();
     }
-    muted("Only on a board set to \"no check\" or \"plugin and replay only\", only when the run would take the tile, "
-          "and only once the game itself reports the finish or has written the run's replay - a pause never "
-          "counts. Every other board takes a tile by a replay on TMX, which the site goes and reads.");
+    muted("Self-reported and game-verified boards only, and only when the run beats the holder. A finish counts once "
+          "the game reports it or writes the replay - never a pause. TMX-verified boards always need a replay on TMX.");
   }
   columns.next();
   {
     Panel panel("Panel");
+    bool bingoOn = config().bingoPanel;
+    if (switchRow("Bingo panel", &bingoOn)) {
+      config().bingoPanel = bingoOn;
+      config().save();
+    }
     bool overlayOn = config().overlay;
-    if (switchRow("Show the panel while driving", &overlayOn)) {
+    if (switchRow("100% TMX panel", &overlayOn)) {
       config().overlay = overlayOn;
       config().save();
     }
     bool images = config().panelImages;
-    if (switchRow("Map pictures on the panel", &images, "Off: a compact text readout.")) {
+    if (switchRow("Map thumbnails", &images, "Off: text only")) {
       config().panelImages = images;
       config().save();
     }
 
-    ImGui::TextColored(kMuted, "The panel takes the mouse");
-    static const char* const kInputs[] = {"Except mid-run", "Only with the menu", "Always"};
+    ImGui::TextColored(kMuted, "Mouse input");
+    static const char* const kInputs[] = {"When not driving", "Menu open only", "Always"};
     static const char* const kInputHints[] = {
-        "Clickable everywhere but during a run - in the menus, at the start, on the results screen.",
-        "Click-through unless this menu is open.", "Always clickable, even mid-run."};
+        "Clickable except while driving.",
+        "Click-through unless the menu is open.", "Always clickable, even while driving."};
     for (int i = 0; i < 3; i++) {
       if (i) sameLineIfRoom(kInputs[i]);
       ImGui::PushID(i);
@@ -1944,7 +2059,7 @@ void drawSettingsPage(const State& state) {
       ImGui::PopID();
     }
 
-    ImGui::TextColored(kMuted, "Starts on the");
+    ImGui::TextColored(kMuted, "Default side");
     ImGui::SameLine();
     if (chip("Left", config().overlayCorner == 0) && config().overlayCorner != 0) {
       config().overlayCorner = 0;
@@ -1965,7 +2080,7 @@ void drawSettingsPage(const State& state) {
     if (ImGui::SliderFloat("Opacity", &alpha, 0.2f, 1.0f, "%.2f")) config().overlayAlpha = alpha;
     if (ImGui::IsItemDeactivatedAfterEdit()) config().save();
 
-    if (button("Put the panels back")) {
+    if (button("Reset panel positions")) {
       Config& c = config();
       c.overlayX = c.overlayY = -1.0f;
       c.overlayW = c.overlayH = 0.0f;
@@ -1986,20 +2101,20 @@ void drawSettingsPage(const State& state) {
     ImGui::Dummy(ImVec2(ImGui::CalcTextSize(current.c_str()).x + ImGui::GetFontSize(), ImGui::GetFrameHeight()));
     ImGui::SameLine();
     if (g_capturingKey) {
-      ImGui::TextColored(kMine, "Press a key... (Esc: keep it)");
+      ImGui::TextColored(kMine, "Press a key (Esc to cancel)");
     } else if (button("Change")) {
       startKeyCapture();
     }
     if (const char* use = shadersUse(config().toggleKey); use && shadersPresent()) {
-      ImGui::TextColored(kWarn, "TM Vibrant Shaders uses %s for %s too.", current.c_str(), use);
-      muted("Both react to it. Pick a key nothing else uses.");
+      ImGui::TextColored(kWarn, "Conflicts with TM Vibrant Shaders (%s: %s)", current.c_str(), use);
+      muted("Choose a different key.");
     }
   }
   (void)state;
 }
 
 void drawStatusPage(const State& state) {
-  pageTitle("Status", "What is running, and what it can read. The lines worth copying into a bug report.");
+  pageTitle("Status", "Diagnostics. Include this page in bug reports.");
   Columns columns(270.0f);
   {
     Panel panel("Versions");
@@ -2029,8 +2144,7 @@ void drawStatusPage(const State& state) {
       if (!state.finishProbe.empty()) muted("Player info: %s", state.finishProbe.c_str());
     } else if (state.inRace) {
       ImGui::TextColored(kWarn, "Race state unreadable - stops at %s", raceStepName(state.raceStep));
-      muted("The map itself reads fine, so the build is close but not exact. Offsets can be corrected in config.ini "
-            "under [offsets] without waiting for a release.");
+      muted("The map reads fine, so the build is close. Offsets can be overridden under [offsets] in config.ini.");
     } else {
       ImGui::TextColored(kMuted, "Race state: no map loaded");
     }
@@ -2055,19 +2169,19 @@ void drawStatusPage(const State& state) {
         ImGui::TextColored(kMuted, "Known, but nothing to read outside a race");
       }
       ImGui::TextColored(kMuted, "app -> %s", calib.chain.c_str());
-      if (button("Learn it again")) ImGui::OpenPopup("Learn the clock again?");
-      if (confirm("Learn the clock again?",
-                  "Forget where this build keeps its race clock? It is learned again from your next laps, and times "
-                  "are not filled in until it is.",
-                  "Forget it")) {
+      if (button("Recalibrate")) ImGui::OpenPopup("Recalibrate the race clock?");
+      if (confirm("Recalibrate the race clock?",
+                  "Discard the current calibration? It is relearned from your next laps; until then times are not "
+                  "filled in.",
+                  "Recalibrate")) {
         pushCommand(Command::Kind::ForgetCalibration);
       }
     } else if (state.inRace) {
       ImGui::TextColored(kWarn, "Learning it - %d clock%s found%s", calib.ticking, calib.ticking == 1 ? "" : "s",
                          calib.sawReset ? ", one has restarted" : "");
-      muted("Drive a lap and press restart once. That is the whole calibration.");
+      muted("Drive a lap, then restart once to calibrate.");
     } else {
-      ImGui::TextColored(kMuted, "Not learned yet - load a map");
+      ImGui::TextColored(kMuted, "Not calibrated - load a map");
     }
 
     // Only when the automatic route has had a chance and failed. It is a
@@ -2077,11 +2191,11 @@ void drawStatusPage(const State& state) {
       if (ImGui::TreeNode("It cannot find it - do it by hand")) {
         static char s_time[16] = "";
         static char s_address[32] = "";
-        muted("Type the time the game showed after a finish, like 13.91.");
+        muted("Enter the finish time shown in game (e.g. 13.91).");
         ImGui::SetNextItemWidth(120.0f * g_scale);
         ImGui::InputText("##calibtime", s_time, sizeof(s_time), ImGuiInputTextFlags_CharsDecimal);
         ImGui::SameLine();
-        if (button("That was my time")) {
+        if (button("Calibrate")) {
           std::string text = s_time;
           for (char& c : text) {
             if (c == ',') c = '.';
@@ -2103,7 +2217,7 @@ void drawStatusPage(const State& state) {
           pushCommand(Command::Kind::CalibrateAddress, s_address);
           s_address[0] = '\0';
         }
-        ImGui::TextColored(kMuted, "Or an address from Cheat Engine that holds the live time.");
+        ImGui::TextColored(kMuted, "Or a live-time address (Cheat Engine)");
         ImGui::TreePop();
       }
     }
@@ -2111,7 +2225,7 @@ void drawStatusPage(const State& state) {
   }
   {
     Panel panel("Files");
-    if (button("Open the 100TMX folder")) {
+    if (button("Open data folder")) {
       // config.ini and log.txt both live there; the log is what a bug report
       // wants attached.
       wchar_t* raw = nullptr;
@@ -2122,26 +2236,26 @@ void drawStatusPage(const State& state) {
       if (raw) CoTaskMemFree(raw);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("config.ini and log.txt. In fullscreen the game may minimise.");
-    muted("Attach log.txt to a bug report.");
+    muted("Attach log.txt to bug reports.");
   }
 }
 
 void drawAboutPage(const State& state) {
-  pageTitle("About", "100% TMX " TMX_VERSION_A " - the project's overlay for TrackMania Forever.");
+  pageTitle("About", "100% TMX " TMX_VERSION_A);
   (void)state;
   Columns columns(270.0f);
   {
     Panel panel("What this does");
     ImGui::Bullet();
-    ImGui::TextWrapped("Shows whether the map you are on is still open for the 100%% TMX project, and what it is worth.");
+    ImGui::TextWrapped("Shows whether the current map is still open for the 100%% TMX project, and its value.");
     ImGui::Bullet();
-    ImGui::TextWrapped("Puts your bingo board on screen, and takes tiles the way each board takes them.");
+    ImGui::TextWrapped("Shows your bingo board and submits tiles according to each board's rules.");
     ImGui::Bullet();
-    ImGui::TextWrapped("Optionally hands finished replays to the browser extension for upload.");
+    ImGui::TextWrapped("Optionally passes replays to the browser extension for upload.");
     ImGui::Spacing();
     // The rule the whole project is built on, said where somebody can read it.
     ImGui::TextColored(kMine, "The mod never awards a finish.");
-    muted("Credit comes from the first replay uploaded to TMX, the same as it always has.");
+    muted("Credit comes from the first replay uploaded to TMX.");
   }
   columns.next();
   {
@@ -2161,6 +2275,11 @@ void drawAboutPage(const State& state) {
 }
 
 void drawMenuHeader(const State& state) {
+  if (void* logo = textures::embedded(TMX_RES_LOGO)) {
+    const float side = g_fontTitle->FontSize;
+    ImGui::Image(reinterpret_cast<ImTextureID>(logo), ImVec2(side, side));
+    ImGui::SameLine(0.0f, 8.0f * g_scale);
+  }
   ImGui::PushFont(g_fontTitle);
   ImGui::TextColored(kAccentHi, "100%% TMX");
   ImGui::PopFont();
@@ -2177,17 +2296,18 @@ void drawMenuHeader(const State& state) {
   // Right: the panel switch and close.
   const float h = ImGui::GetFrameHeight();
   const float right = ImGui::GetContentRegionMax().x;
-  const char* panelLabel = "Panel";
+  const char* panelLabel = "Panels";
   ImGui::SameLine(right - h - h * 1.8f - ImGui::CalcTextSize(panelLabel).x - 28.0f * g_scale);
   ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted(panelLabel);
   ImGui::SameLine();
-  bool overlayOn = config().overlay;
+  bool overlayOn = config().overlay || config().bingoPanel;
   if (toggle("panel", &overlayOn)) {
     config().overlay = overlayOn;
+    config().bingoPanel = overlayOn;
     config().save();
   }
-  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the panel while driving");
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show both panels");
   ImGui::SameLine(right - h);
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.78f, 0.20f, 0.20f, 0.90f));
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.92f, 0.28f, 0.26f, 1.0f));
@@ -2206,8 +2326,8 @@ void drawMenuHeader(const State& state) {
 
 void drawNavigation(const State& state) {
   static const char* const kPages[] = {"Now playing", "Bingo", "Connection", "Settings", "Status", "About"};
-  static const char* const kHints[] = {"The map you are on", "Your boards, tile by tile", "Link this machine to your account",
-                                       "How the mod behaves", "Versions, race clock, files", "What this is"};
+  static const char* const kHints[] = {"Current map and leaderboard", "Your boards", "Account and replay upload",
+                                       "Behaviour and appearance", "Diagnostics", "About"};
   const float h = 38.0f * g_scale;
   ImDrawList* draw = ImGui::GetWindowDrawList();
   for (int i = 0; i < kPageCount; i++) {
@@ -2259,8 +2379,8 @@ void drawMenu(const State& state) {
     s_placed = true;
     s_display = display;
     const float maxW = std::max(320.0f, display.x - margin * 2.0f);
-    const float w = std::clamp(display.x * 0.5f, std::min(780.0f * g_scale, maxW), std::min(1180.0f * g_scale, maxW));
-    const float h = std::min(display.y - margin * 2.0f, 860.0f * g_scale);
+    const float w = std::clamp(display.x * 0.4f, std::min(660.0f * g_scale, maxW), std::min(940.0f * g_scale, maxW));
+    const float h = std::min(display.y - margin * 2.0f, 760.0f * g_scale);
     const bool panelOnLeft = g_panelCentreX < display.x * 0.5f;
     ImGui::SetNextWindowPos(ImVec2(panelOnLeft ? display.x - margin - w : margin, margin), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
@@ -2278,7 +2398,7 @@ void drawMenu(const State& state) {
   }
   drawMenuHeader(state);
 
-  ImGui::BeginChild("navigation", ImVec2(170.0f * g_scale, 0.0f));
+  ImGui::BeginChild("navigation", ImVec2(150.0f * g_scale, 0.0f));
   drawNavigation(state);
   ImGui::EndChild();
   ImGui::SameLine(0.0f, 14.0f * g_scale);
@@ -2437,7 +2557,12 @@ void draw(IDirect3DDevice9* device) {
   // when the game has swallowed it - but only while the game is the window in
   // front: F9 pressed in a browser is not meant for the game.
   pollKeyCapture();
-  const bool down = !g_capturingKey && gameHasFocus() && (GetAsyncKeyState(config().toggleKey) & 0x8000) != 0;
+  // The bare key only: TM Vibrant Shaders reloads its shaders on Ctrl+F9, and
+  // that press must not also open this menu.
+  const bool modifier = (GetAsyncKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_MENU) & 0x8000) ||
+                        (GetAsyncKeyState(VK_SHIFT) & 0x8000);
+  const bool down = !g_capturingKey && gameHasFocus() && !modifier &&
+                    (GetAsyncKeyState(config().toggleKey) & 0x8000) != 0;
   if (down && !g_toggleHeld) {
     g_uiOpen = !g_uiOpen;
     log::line("toggle key: window %s", g_uiOpen ? "open" : "closed");
@@ -2473,11 +2598,25 @@ void draw(IDirect3DDevice9* device) {
   }
   if (config().menuPage < 0 || config().menuPage >= kPageCount) config().menuPage = kPlaying;
 
+  // The game hides the Windows cursor and draws its own, which it moves from
+  // the mouse messages - so once a panel takes the mouse, the game's cursor
+  // stops where it was and the pointer seems to vanish. While a panel has it,
+  // ImGui draws the pointer instead (as TM Vibrant Shaders does over its
+  // menu). Otherwise ImGui leaves the OS cursor alone: setting an arrow
+  // every frame would fight the game over it.
+  {
+    ImGuiIO& io = ImGui::GetIO();
+    const bool ours = interactive() && io.WantCaptureMouse && g_window && !foreignOwnsMouse(g_window);
+    io.MouseDrawCursor = ours;
+    if (ours) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+  }
+
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
 
-  if (config().overlay || g_uiOpen) drawPanel(state);
+  drawPanel(state);
   if (g_uiOpen) drawMenu(state);
 
   ImGui::EndFrame();
@@ -2534,6 +2673,14 @@ LRESULT CALLBACK wndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam
       // Another overlay has the pointer: its window is the one under it. Ours
       // must not light up or take the click, so ImGui is told the pointer left.
       if (message == WM_MOUSEMOVE) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+      // Except the release of a press we took before it did: that one is
+      // still ours, or the game sees a button come up it never saw go down.
+      const int up = message == WM_LBUTTONUP ? 0 : message == WM_RBUTTONUP ? 1 : message == WM_MBUTTONUP ? 2 :
+                     message == WM_XBUTTONUP ? (GET_XBUTTON_WPARAM(wparam) == XBUTTON1 ? 3 : 4) : -1;
+      if (up >= 0 && g_swallowedButton[up]) {
+        g_swallowedButton[up] = false;
+        return 1;
+      }
       return CallWindowProcW(g_originalWndProc, window, message, wparam, lparam);
     }
 

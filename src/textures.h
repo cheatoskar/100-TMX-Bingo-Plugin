@@ -40,5 +40,12 @@ Status status(const std::string& url);
 /** On shutdown: every texture belongs to the device. */
 void releaseAll();
 
+/**
+ * A picture built into the DLL (an RCDATA resource holding a PNG), as a
+ * texture for ImGui - or null if it cannot be made. Render thread only.
+ * Decoded once, uploaded once per device, released with everything else.
+ */
+void* embedded(int resourceId);
+
 }  // namespace textures
 }  // namespace tmx

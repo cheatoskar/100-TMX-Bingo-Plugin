@@ -63,6 +63,7 @@ add_library(tmx_mod SHARED
   src/scan.cpp
   src/textures.cpp
   src/worker.cpp
+  res/tmx.rc
 
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -148,6 +149,7 @@ if(TMX_BUILD_PREVIEW)
     src/overlay.cpp
     src/textures.cpp
     src/http.cpp
+    res/tmx.rc
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp

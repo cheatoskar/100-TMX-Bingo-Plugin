@@ -32,6 +32,8 @@ struct Config {
   bool shareWhatIAmPlaying = true;
 
   bool overlay = true;
+  /** The Bingo panel, closed and opened on its own. */
+  bool bingoPanel = true;
   int overlayCorner = 0;     // 0 left, 1 right - only the starting side
   // Where the panel was last dragged to. NaN-ish -1 means "never moved", in
   // which case the corner above decides.

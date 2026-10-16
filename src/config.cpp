@@ -126,6 +126,7 @@ void Config::load() {
       if (key == "share") shareWhatIAmPlaying = asBool(value, shareWhatIAmPlaying);
       else if (key == "auto_submit") autoSubmitSelfReported = asBool(value, autoSubmitSelfReported);
       else if (key == "overlay") overlay = asBool(value, overlay);
+      else if (key == "bingo_panel") bingoPanel = asBool(value, bingoPanel);
       else if (key == "corner") overlayCorner = asInt(value, overlayCorner, 0, 1);
       else if (key == "scale") overlayScale = asFloat(value, overlayScale, 0.7f, 1.8f);
       else if (key == "alpha") overlayAlpha = asFloat(value, overlayAlpha, 0.2f, 1.0f);
@@ -247,6 +248,7 @@ void Config::save() const {
          << "share = " << (shareWhatIAmPlaying ? "true" : "false") << "\n"
          << "auto_submit = " << (autoSubmitSelfReported ? "true" : "false") << "\n"
          << "overlay = " << (overlay ? "true" : "false") << "\n"
+         << "bingo_panel = " << (bingoPanel ? "true" : "false") << "\n"
          << "corner = " << overlayCorner << "\n"
          << "scale = " << overlayScale << "\n"
          << "alpha = " << overlayAlpha << "\n"

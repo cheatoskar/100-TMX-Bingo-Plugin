@@ -120,6 +120,7 @@ name: 100% TMX + Bingo
 author: cheatoskar
 type: modification
 homepage: 'https://100tmx.com/'
+icon_link: 'https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/icon.png'
 description: 'Bingo boards and the 100% TMX project in the game.'
 ```
 
@@ -243,9 +244,9 @@ differently:
 
 | On the website | How you take a tile | With the mod |
 |---|---|---|
-| **A replay driven for this board** | Upload a replay to TMX, driven after the board started | Press **I uploaded it** - the site checks TMX |
-| **Any replay on TMX** | The same, but a replay of any age counts - for maps you have all driven before | Press **I uploaded it** |
-| **No check (works with the plugin)** | The time is self-reported - nothing is uploaded | **Automatic** when you finish, or **Enter my time...** for a run driven elsewhere |
+| **A replay driven for this board** | Upload a replay to TMX, driven after the board started | Press **Verify replay** - the site checks TMX |
+| **Any replay on TMX** | The same, but a replay of any age counts - for maps you have all driven before | Press **Verify replay** |
+| **No check (works with the plugin)** | The time is self-reported - nothing is uploaded | **Automatic** when you finish, or **Enter time...** for a run driven elsewhere |
 | **Plugin and replay only** | The time must come from the game, or a replay file on the website | **Automatic** when you finish. No typed times. |
 
 The first two need your TrackMania Exchange account
@@ -259,7 +260,7 @@ flowchart TD
     faster -->|yes| auto["The mod puts your time<br/>on the tile - instantly"]
     faster -->|no| keep["The tile stays where it is"]
     kind -->|"A replay on TMX"| upload["Upload the replay to TMX<br/>(or let the uploader do it)"]
-    upload --> check["Press 'I uploaded it'<br/>- the site checks TMX"]
+    upload --> check["Press 'Verify replay'<br/>- the site checks TMX"]
 ```
 
 ### When a tile is filled in
@@ -268,8 +269,8 @@ On a self-reported board (*No check* or *Plugin and replay only*) your time goes
 on the tile **the moment you cross the line** - first run or tenth, record or
 not - as long as it beats the current holder. The mod reads the game's own
 "race finished" state, so pressing Escape at a checkpoint is never mistaken for
-a finish. Turn it off under **Settings → Put my finish straight onto
-self-reported boards** if you would rather press a button.
+a finish. Turn it off under **Settings → Auto-submit finishes** if you would
+rather press a button.
 
 A capture shows on the website straight away and in everybody else's mod within
 about twenty seconds.
@@ -378,16 +379,18 @@ TM Vibrant Shaders menu:
 While you are **driving**, the panels let clicks through to the game. Standing
 on the line, paused, on the results screen or back from alt-tab, you can click
 and drag them normally. **F9** always makes them clickable, and the three bars
-in a panel's corner open the menu.
+in a panel's corner open the menu. The **x** next to them hides that panel;
+switch it back on under **Settings** (or the **Panels** switch at the top of
+the menu).
 
 The menu opens on the side of the screen the panels are not on:
 
 | Page | For |
 |---|---|
-| **Now playing** | the map you are on in full, your run, and every board it is a tile of |
+| **Now playing** | the map you are on in full, your run, the TMX top 10 for the map (with where your run would place), and every board it is a tile of |
 | **Bingo** | your boards as cards - click one to show it - and the board tile by tile, with each map's picture, holder and buttons |
 | **Connection** | connect or disconnect this PC, sharing what you play, and the replay uploader |
-| **Settings** | automatic tiles, the panels (pictures, when they take the mouse, size, opacity, corner) and the menu key |
+| **Settings** | automatic tiles, which panels are shown, thumbnails, when they take the mouse, size, opacity, corner, and the menu key |
 | **Status** | game build, mod version, the race clock, what the mod reads right now - include it in bug reports |
 | **About** | what the mod does and does not do, and links |
 
@@ -452,8 +455,7 @@ player_time = 0x2B0
 
 **My time did not go on the tile.** Check that the board is *No check* or
 *Plugin and replay only* (the others need a replay on TMX), that your time beats
-the holder's, and that **Settings → Put my finish straight onto self-reported
-boards** is on.
+the holder's, and that **Settings → Auto-submit finishes** is on.
 
 **The windows will not take the mouse.** They let clicks through while you are
 driving; stop the car or pause. **F9** always makes them clickable.

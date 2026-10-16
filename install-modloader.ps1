@@ -61,6 +61,7 @@ name: 100% TMX + Bingo
 author: cheatoskar
 type: modification
 homepage: 'https://100tmx.com/'
+icon_link: 'https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/icon.png'
 description: 'Bingo boards on screen while you drive - your tiles, the time to beat, and a button that starts any of their maps. Plus: is this map still open for the 100% TMX project, what is it worth, who finished it.'
 "@, $utf8)
 

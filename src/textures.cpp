@@ -190,6 +190,8 @@ void fetchLoop() {
   }
 }
 
+void releaseEmbedded();  // below, with the pictures built into the DLL
+
 void release(Live& live) {
   if (live.texture) live.texture->Release();
   live.texture = nullptr;
@@ -261,6 +263,7 @@ void beginFrame(IDirect3DDevice9* device) {
   if (!device) return;
   if (device != g_device) {
     // A device the game made anew: the old textures belong to the old one.
+    releaseEmbedded();
     for (auto& [url, live] : g_cache) release(live);
     g_cache.clear();
     g_device = device;
@@ -305,7 +308,87 @@ Status status(const std::string& url) {
   return it->second.state == Want::Failed ? Status::Failed : Status::Loading;
 }
 
+namespace {
+
+struct Embedded {
+  bool decoded = false;
+  int width = 0, height = 0;
+  std::vector<uint32_t> bgra;
+  IDirect3DTexture9* texture = nullptr;
+};
+std::map<int, Embedded> g_embedded;
+
+void releaseEmbedded() {
+  for (auto& [id, picture] : g_embedded) {
+    if (picture.texture) picture.texture->Release();
+    picture.texture = nullptr;
+  }
+}
+
+HMODULE selfModule() {
+  HMODULE module = nullptr;
+  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                     reinterpret_cast<LPCWSTR>(&selfModule), &module);
+  return module;
+}
+
+bool decodeResource(int resourceId, Embedded& out) {
+  HMODULE module = selfModule();
+  HRSRC found = FindResourceW(module, MAKEINTRESOURCEW(resourceId), MAKEINTRESOURCEW(10));  // RT_RCDATA
+  HGLOBAL loaded = found ? LoadResource(module, found) : nullptr;
+  const void* bytes = loaded ? LockResource(loaded) : nullptr;
+  const DWORD size = found ? SizeofResource(module, found) : 0;
+  if (!bytes || size == 0) return false;
+  int width = 0, height = 0, channels = 0;
+  unsigned char* pixels = stbi_load_from_memory(static_cast<const unsigned char*>(bytes), static_cast<int>(size), &width,
+                                                &height, &channels, 4);
+  if (!pixels) return false;
+  out.width = width;
+  out.height = height;
+  out.bgra.resize(static_cast<size_t>(width) * height);
+  for (size_t i = 0; i < out.bgra.size(); i++) {
+    const unsigned char* p = pixels + i * 4;
+    out.bgra[i] = (static_cast<uint32_t>(p[3]) << 24) | (static_cast<uint32_t>(p[0]) << 16) |
+                  (static_cast<uint32_t>(p[1]) << 8) | p[2];
+  }
+  stbi_image_free(pixels);
+  return true;
+}
+
+}  // namespace
+
+void* embedded(int resourceId) {
+  if (!g_device) return nullptr;
+  Embedded& picture = g_embedded[resourceId];
+  if (!picture.decoded) {
+    picture.decoded = true;  // once: a missing resource is not looked up every frame
+    if (!decodeResource(resourceId, picture)) log::line("textures: embedded picture %d missing", resourceId);
+  }
+  if (picture.texture || picture.bgra.empty()) return picture.texture;
+  IDirect3DTexture9* texture = nullptr;
+  if (FAILED(g_device->CreateTexture(static_cast<UINT>(picture.width), static_cast<UINT>(picture.height), 1, 0,
+                                     D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr)) ||
+      !texture) {
+    picture.bgra.clear();
+    return nullptr;
+  }
+  D3DLOCKED_RECT locked{};
+  if (FAILED(texture->LockRect(0, &locked, nullptr, 0))) {
+    texture->Release();
+    picture.bgra.clear();
+    return nullptr;
+  }
+  for (int y = 0; y < picture.height; y++) {
+    memcpy(static_cast<char*>(locked.pBits) + static_cast<size_t>(locked.Pitch) * y,
+           &picture.bgra[static_cast<size_t>(y) * picture.width], static_cast<size_t>(picture.width) * 4);
+  }
+  texture->UnlockRect(0);
+  picture.texture = texture;
+  return texture;
+}
+
 void releaseAll() {
+  releaseEmbedded();
   for (auto& [url, live] : g_cache) release(live);
   g_cache.clear();
   g_device = nullptr;

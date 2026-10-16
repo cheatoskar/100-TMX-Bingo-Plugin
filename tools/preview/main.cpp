@@ -95,6 +95,12 @@ void fillState(const std::string& scene) {
 
     s.alsoHere = {{"Kestrel", ""}};
 
+    // Fictional names; the times are shaped like a real leaderboard.
+    s.top.key = "tmnf:" + std::to_string(m.trackId);
+    const char* names[] = {"Rallo", "Kestrel", "Vexa", "Moritz.tm", "Brumm", "Jaro", "Ayla", "Pike", "Stellan", "Nox"};
+    const int times[] = {41870, 42050, 42110, 42390, 42940, 43480, 43510, 43990, 44620, 45020};
+    for (int i = 0; i < 10; i++) s.top.rows.push_back({i + 1, names[i], times[i], "2025-09-16"});
+
     BoardHit hit;
     hit.boardId = "b1";
     hit.title = "Friday night 5x5";

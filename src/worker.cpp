@@ -248,6 +248,89 @@ unsigned int parseColor(const std::string& hex) {
   return 0xFF000000u | (b << 16) | (g << 8) | r;  // ImGui packs ABGR
 }
 
+/**
+ * The exchange's own leaderboard for the map you are on.
+ *
+ * Asked of TMX directly, not through the site: it is TMX's number, and the
+ * site has nothing to add to it. One request per map, then again every few
+ * minutes while you stay - so a time somebody uploads while you grind shows
+ * up without hammering an exchange that is not ours. Only the exchange hosts
+ * are asked; the map's address comes from the site, and a URL off the network
+ * is not a place to send requests to unchecked.
+ */
+std::string exchangeHost(const std::string& mapUrl) {
+  const std::string scheme = "https://";
+  if (mapUrl.rfind(scheme, 0) != 0) return std::string();
+  const size_t slash = mapUrl.find('/', scheme.size());
+  const std::string host = mapUrl.substr(scheme.size(), slash == std::string::npos ? std::string::npos : slash - scheme.size());
+  auto endsWith = [&](const std::string& tail) {
+    return host.size() >= tail.size() && host.compare(host.size() - tail.size(), tail.size(), tail) == 0;
+  };
+  if (host.find_first_of(":@") != std::string::npos) return std::string();
+  return endsWith(".exchange") || endsWith(".tm-exchange.com") ? host : std::string();
+}
+
+void refreshTop(double now) {
+  static std::string s_key;
+  static double s_last = 0;
+  std::string site, mapUrl;
+  int trackId = 0;
+  shared().write([&](State& s) {  // only reads; write() is the lock without a full copy
+    site = s.map.site;
+    trackId = s.map.trackId;
+    mapUrl = s.map.url;
+  });
+  const std::string key = trackId > 0 ? site + ":" + std::to_string(trackId) : std::string();
+  if (key.empty()) {
+    if (!s_key.empty()) {
+      s_key.clear();
+      shared().write([](State& s) { s.top = TopTen(); });
+    }
+    return;
+  }
+  const bool changed = key != s_key;
+  if (!changed && now - s_last < 180.0) return;
+  s_key = key;
+  s_last = now;
+  const std::string host = exchangeHost(mapUrl);
+  if (host.empty()) return;
+  if (changed) {
+    shared().write([&](State& s) {
+      s.top = TopTen();
+      s.top.key = key;
+      s.top.loading = true;
+    });
+  }
+
+  const Response res = request("GET",
+                               "https://" + host + "/api/replays?trackid=" + std::to_string(trackId) +
+                                   "&best=1&count=10&fields=ReplayTime,Position,ReplayAt,User.Name",
+                               "", "", true, 5000);
+  TopTen top;
+  top.key = key;
+  top.fetchedAt = now;
+  const Json data = res.ok && res.status == 200 ? Json::parse(res.body) : Json();
+  const Json* results = data.child("Results");
+  if (!results || results->type != Json::Type::Array) {
+    top.error = !res.ok ? "TMX could not be reached" : "TMX answered " + std::to_string(res.status);
+  } else {
+    for (const Json& r : results->array) {
+      TopRow row;
+      row.position = r.integer("Position") + 1;
+      row.timeMs = r.integer("ReplayTime");
+      row.at = r.str("ReplayAt").substr(0, 10);
+      if (const Json* user = r.child("User")) row.name = user->str("Name");
+      top.rows.push_back(std::move(row));
+      if (top.rows.size() >= 10) break;
+    }
+  }
+  if (!top.error.empty()) log::line("top ten for %s: %s", key.c_str(), top.error.c_str());
+  shared().write([&](State& s) {
+    // The map may have changed while TMX was answering.
+    if (s.map.trackId == trackId && s.map.site == site) s.top = std::move(top);
+  });
+}
+
 void applyMapAnswer(const Json& data, const std::string& uid) {
   MapStatus map;
   map.uid = uid;
@@ -900,6 +983,7 @@ void loop() {
     }
 
     pollLink(nowSeconds());
+    refreshTop(nowSeconds());
 
     // The game is read on its own thread (readLoop); this only takes the
     // latest reading. What used to sit here could not see a finish that

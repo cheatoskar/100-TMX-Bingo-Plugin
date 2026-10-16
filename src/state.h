@@ -45,6 +45,23 @@ struct MapStatus {
   std::string justFinishedBy;
 };
 
+/** One line of the exchange's own leaderboard for a map. */
+struct TopRow {
+  int position = 0;  // 1-based
+  std::string name;
+  int timeMs = 0;
+  std::string at;    // when it was driven, "2025-09-16"
+};
+
+/** The best ten on TMX for the map you are on, straight from the exchange. */
+struct TopTen {
+  std::string key;   // "tmnf:2233" - which map these rows belong to
+  std::vector<TopRow> rows;
+  bool loading = false;
+  std::string error;
+  double fetchedAt = 0;
+};
+
 struct BoardSummary {
   std::string id;
   std::string kind;
@@ -289,6 +306,7 @@ struct State {
    */
   std::string selectedBoard;
   BoardView board;
+  TopTen top;
   std::string lastCall;     // "reported the map", "checked tile 7", …
   std::string lastError;
 
