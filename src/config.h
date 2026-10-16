@@ -69,6 +69,11 @@ struct Config {
   // The board the panel is showing, remembered across sessions.
   std::string board;
 
+  /** Ask GitHub for the newest release once per game start. */
+  bool checkUpdates = true;
+  /** A release put off with "Later": the panel stops mentioning that one. */
+  std::string skippedUpdate;
+
   /**
    * Put a finish straight onto a self-reported board without asking.
    *

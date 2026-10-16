@@ -179,6 +179,76 @@ void renameInProfiles(const std::wstring& loader, const std::wstring& to, const 
   FindClose(handle);
 }
 
+// Point every profile that has this mod at a fixed version to `version`.
+//
+// The ModLoader writes `version:` under a ticked mod as soon as somebody picks
+// one in its list, and from then on loads that version and no other. An update
+// then installed nothing anyone runs: the new folder sat beside the old one and
+// the game kept loading the old DLL, with no hint anywhere. Called only after
+// the new version folder is in place - a pin to a version that is missing
+// stops the whole launch.
+void pinInProfiles(const std::wstring& loader, const std::wstring& version) {
+  const std::wstring dir = loader + L"\\database\\TmForever\\profiles";
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((dir + L"\\*.yaml").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return;
+
+  const std::string id = wide(kProduct);
+  const std::string to = wide(version);
+  const std::string needles[] = {"id: " + id, "id: '" + id + "'", "id: \"" + id + "\""};
+  do {
+    const std::wstring path = dir + L"\\" + find.cFileName;
+    std::string text;
+    {
+      HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (file == INVALID_HANDLE_VALUE) continue;
+      char buffer[8192];
+      DWORD read = 0;
+      while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
+      CloseHandle(file);
+    }
+    if (text.empty() || text.size() > 64 * 1024) continue;
+
+    bool changed = false;
+    for (const std::string& needle : needles) {
+      for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
+        const size_t after = at + needle.size();
+        if (after < text.size() && text[after] != '\n' && text[after] != '\r') continue;  // a whole id only
+        // The keys of this entry are the lines below it that are indented and
+        // do not start the next entry ("- id: ...").
+        size_t line = text.find('\n', at);
+        while (line != std::string::npos) {
+          const size_t start = line + 1;
+          const size_t key = text.find_first_not_of(' ', start);
+          if (key == std::string::npos || key == start || text[key] == '-' || text[key] == '\r' || text[key] == '\n') break;
+          if (text.compare(key, 8, "version:") == 0) {
+            const size_t value = text.find_first_not_of(' ', key + 8);
+            const size_t end = text.find_first_of("\r\n", key);
+            if (value != std::string::npos && value < end) {
+              const size_t stop = end == std::string::npos ? text.size() : end;
+              if (text.compare(value, stop - value, to) != 0) {
+                text.replace(value, stop - value, to);
+                changed = true;
+              }
+            }
+            break;
+          }
+          line = text.find('\n', start);
+        }
+      }
+    }
+    if (!changed) continue;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) continue;
+    DWORD written = 0;
+    WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+  } while (FindNextFileW(handle, &find));
+  FindClose(handle);
+}
+
 int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
   if (g_quiet) return IDOK;
   return MessageBoxW(nullptr, text.c_str(), kTitle, MB_OK | icon);
@@ -255,6 +325,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int) {
         MB_ICONERROR);
     return 1;
   }
+  pinInProfiles(loader, kVersion);
 
   if (!quiet) {
     say(std::wstring(L"100% TMX + Bingo ") + kVersion + L" is installed.\n\n"

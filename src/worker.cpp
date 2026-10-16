@@ -20,6 +20,7 @@
 #include "log.h"
 #include "state.h"
 #include "textures.h"
+#include "tmx_version.h"
 
 namespace tmx {
 
@@ -268,6 +269,66 @@ std::string exchangeHost(const std::string& mapUrl) {
   };
   if (host.find_first_of(":@") != std::string::npos) return std::string();
   return endsWith(".exchange") || endsWith(".tm-exchange.com") ? host : std::string();
+}
+
+// Where releases are cut. The tag is the version (v1.1.0), set by CI.
+const char* kRepository = "cheatoskar/100-TMX-Bingo-Plugin";
+
+/** "1.0.10" > "1.0.9"; a pre-release (1.1.0-rc.1) is older than its release. */
+bool newerVersion(const std::string& version, const std::string& than) {
+  const char* a = version.c_str();
+  const char* b = than.c_str();
+  for (int part = 0; part < 4; part++) {
+    char* endA = nullptr;
+    char* endB = nullptr;
+    const unsigned long x = strtoul(a, &endA, 10), y = strtoul(b, &endB, 10);
+    if (x != y) return x > y;
+    a = *endA == '.' ? endA + 1 : endA;
+    b = *endB == '.' ? endB + 1 : endB;
+    if (*a < '0' || *a > '9') a = "0";
+    if (*b < '0' || *b > '9') b = "0";
+  }
+  const bool preA = version.find('-') != std::string::npos, preB = than.find('-') != std::string::npos;
+  return !preA && preB;
+}
+
+/**
+ * Is there a newer release than this build?
+ *
+ * One request to GitHub's releases/latest, which skips drafts and
+ * pre-releases. Nothing is downloaded or installed: an update is the release
+ * page, opened when the player asks for it. A DLL replacing itself inside a
+ * running game, fetched by the game, is a much bigger promise than this mod
+ * needs to make.
+ */
+void checkUpdate() {
+  shared().write([](State& s) { s.update.status = UpdateInfo::Status::Checking; });
+  const Response res =
+      request("GET", std::string("https://api.github.com/repos/") + kRepository + "/releases/latest", "", "", true, 5000);
+  const Json data = res.ok && res.status == 200 ? Json::parse(res.body) : Json();
+  const std::string tag = data.str("tag_name");
+  UpdateInfo info;
+  if (tag.empty()) {
+    info.status = UpdateInfo::Status::Failed;
+  } else {
+    info.version = tag[0] == 'v' || tag[0] == 'V' ? tag.substr(1) : tag;
+    const std::string page = data.str("html_url");
+    info.url = page.rfind("https://github.com/", 0) == 0 ? page
+                                                          : std::string("https://github.com/") + kRepository + "/releases";
+    // The notes open with "## 100% TMX + Bingo 1.1.0 - what it is about";
+    // that line is the summary. The rest is Markdown for a web page.
+    const std::string body = data.str("body");
+    const size_t start = body.find_first_not_of("#\r\n ");
+    if (start != std::string::npos) info.title = body.substr(start, body.find_first_of("\r\n", start) - start);
+    info.status = newerVersion(info.version, TMX_VERSION_A) ? UpdateInfo::Status::Available
+                                                            : UpdateInfo::Status::UpToDate;
+  }
+  log::line("update: %s (latest release %s, this is %s)",
+            info.status == UpdateInfo::Status::Available  ? "a newer version is out"
+            : info.status == UpdateInfo::Status::UpToDate ? "up to date"
+                                                          : "check failed",
+            info.version.empty() ? "unknown" : info.version.c_str(), TMX_VERSION_A);
+  shared().write([&](State& s) { s.update = info; });
 }
 
 void refreshTop(double now) {
@@ -974,6 +1035,9 @@ void loop() {
           game::forgetCalibration();
           toast("Calibration cleared.");
           break;
+        case Command::Kind::CheckUpdate:
+          checkUpdate();
+          break;
         case Command::Kind::ReleaseAll:
           if (!config().token.empty()) post(url("/api/game/idle"), "{}", config().token);
           clearMap();
@@ -984,6 +1048,11 @@ void loop() {
 
     pollLink(nowSeconds());
     refreshTop(nowSeconds());
+    static bool s_updateChecked = false;
+    if (!s_updateChecked && config().checkUpdates) {
+      s_updateChecked = true;
+      checkUpdate();
+    }
 
     // The game is read on its own thread (readLoop); this only takes the
     // latest reading. What used to sit here could not see a finish that

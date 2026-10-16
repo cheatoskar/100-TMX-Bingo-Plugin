@@ -392,7 +392,7 @@ The menu opens on the side of the screen the panels are not on:
 | **Connection** | connect or disconnect this PC, sharing what you play, and the replay uploader |
 | **Settings** | automatic tiles, which panels are shown, thumbnails, when they take the mouse, size, opacity, corner, and the menu key |
 | **Status** | game build, mod version, the race clock, what the mod reads right now - include it in bug reports |
-| **About** | what the mod does and does not do, and links |
+| **About** | what the mod does and does not do, updates, and links |
 
 Anything that cannot be taken back - disconnecting, forgetting the race clock -
 asks first.

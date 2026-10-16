@@ -62,6 +62,15 @@ struct TopTen {
   double fetchedAt = 0;
 };
 
+/** The newest release on GitHub, against the one running. */
+struct UpdateInfo {
+  enum class Status { Unknown, Checking, UpToDate, Available, Failed };
+  Status status = Status::Unknown;
+  std::string version;  // "1.1.0", without the tag's v
+  std::string url;      // the release page: the zip and the installer are there
+  std::string title;    // the first heading of its notes
+};
+
 struct BoardSummary {
   std::string id;
   std::string kind;
@@ -307,6 +316,7 @@ struct State {
   std::string selectedBoard;
   BoardView board;
   TopTen top;
+  UpdateInfo update;
   std::string lastCall;     // "reported the map", "checked tile 7", …
   std::string lastError;
 
@@ -322,7 +332,8 @@ struct Command {
     // Teaching this build where its race clock lives. Both walk the game's
     // object graph, which takes long enough to matter - so they are commands
     // for the worker rather than something a button does on the render thread.
-    CalibrateAddress, CalibrateTime, ForgetCalibration
+    CalibrateAddress, CalibrateTime, ForgetCalibration,
+    CheckUpdate
   };
   Kind kind = Kind::RefreshBoards;
   std::string text;   // board id, or a play URL

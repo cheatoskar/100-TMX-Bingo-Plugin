@@ -142,6 +142,8 @@ void Config::load() {
       else if (key == "bingo_w") bingoW = asFloat(value, bingoW, 0.0f, 4000.0f);
       else if (key == "bingo_h") bingoH = asFloat(value, bingoH, 0.0f, 4000.0f);
       else if (key == "board") board = value;
+      else if (key == "check_updates") checkUpdates = asBool(value, checkUpdates);
+      else if (key == "update_skipped") skippedUpdate = value;
       else if (key == "bridge") bridge = asBool(value, bridge);
       else if (key == "bridge_key") bridgeKey = value;
       else if (key == "replay_dir") replayDir = value;
@@ -266,6 +268,8 @@ void Config::save() const {
          << "bingo_h = " << bingoH << "\n"
          << "input = " << panelInput << "\n"
          << "board = " << board << "\n"
+         << "check_updates = " << (checkUpdates ? "true" : "false") << "\n"
+         << "update_skipped = " << skippedUpdate << "\n"
          << "toggle_key = " << toggleKey << "\n"
          << "menu_page = " << menuPage << "\n"
          << "panel_images = " << (panelImages ? "true" : "false") << "\n"

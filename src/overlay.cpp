@@ -1580,6 +1580,25 @@ void drawPanel(const State& state) {
     drawPanelHeader(state, "100% TMX", kAccentHi, std::string(), canClick, true, &c.overlay, &c.overlayMin);
     drawPairing("panel-pairing", canClick);
 
+    // A newer release, said where it is seen - until "Later", after which only
+    // the menu still mentions that version.
+    const UpdateInfo& update = state.update;
+    if (update.status == UpdateInfo::Status::Available && update.version != c.skippedUpdate && !c.overlayMin) {
+      ImGui::TextColored(kAccentHi, "Update %s available", update.version.c_str());
+      if (canClick) {
+        if (button("Download", Tone::Primary)) pushCommand(Command::Kind::OpenUrl, update.url);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Opens the release page. In fullscreen the game may minimise.");
+        ImGui::SameLine();
+        if (button("Later")) {
+          c.skippedUpdate = update.version;
+          c.save();
+        }
+      } else {
+        muted("%s > About", keyName(c.toggleKey).c_str());
+      }
+      ImGui::Separator();
+    }
+
     if (state.linking) {
       // The code goes where the eyes are. The menu has it too, but somebody
       // who pressed Connect is looking at the panel.
@@ -2271,7 +2290,6 @@ void drawStatusPage(const State& state) {
 
 void drawAboutPage(const State& state) {
   pageTitle("About", "100% TMX " TMX_VERSION_A);
-  (void)state;
   Columns columns(270.0f);
   {
     Panel panel("What this does");
@@ -2287,6 +2305,32 @@ void drawAboutPage(const State& state) {
     muted("Credit comes from the first replay uploaded to TMX.");
   }
   columns.next();
+  {
+    Panel panel("Updates");
+    const UpdateInfo& update = state.update;
+    switch (update.status) {
+      case UpdateInfo::Status::Unknown: muted("Not checked."); break;
+      case UpdateInfo::Status::Checking: muted("Checking GitHub..."); break;
+      case UpdateInfo::Status::Failed: muted("GitHub could not be reached."); break;
+      case UpdateInfo::Status::UpToDate: ImGui::TextColored(kOpen, "Up to date (%s)", TMX_VERSION_A); break;
+      case UpdateInfo::Status::Available:
+        ImGui::PushFont(g_fontTitle);
+        ImGui::TextColored(kAccentHi, "Version %s available", update.version.c_str());
+        ImGui::PopFont();
+        if (!update.title.empty()) ImGui::TextWrapped("%s", update.title.c_str());
+        muted("Installed: %s. Download the zip and run its installer.", TMX_VERSION_A);
+        if (button("Download", Tone::Primary)) pushCommand(Command::Kind::OpenUrl, update.url);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Opens the release page. In fullscreen the game may minimise.");
+        ImGui::SameLine();
+        break;
+    }
+    if (update.status != UpdateInfo::Status::Checking && button("Check now")) pushCommand(Command::Kind::CheckUpdate);
+    bool check = config().checkUpdates;
+    if (switchRow("Check on start", &check, "One request to api.github.com per game start. Nothing about you is sent.")) {
+      config().checkUpdates = check;
+      config().save();
+    }
+  }
   {
     Panel panel("Links");
     const std::string base = config().baseUrl;
@@ -2321,6 +2365,12 @@ void drawMenuHeader(const State& state) {
     config().menuPage = kConnection;
   }
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Connection");
+  if (state.update.status == UpdateInfo::Status::Available) {
+    ImGui::SameLine();
+    const std::string label = "Update " + state.update.version;
+    if (chip(label.c_str(), true)) config().menuPage = kAbout;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A newer version is out");
+  }
 
   // Right: the panel switch and close.
   const float h = ImGui::GetFrameHeight();
@@ -2382,7 +2432,8 @@ void drawNavigation(const State& state) {
     // A dot where something wants attention.
     const bool attention = (i == kConnection && (!state.linked || state.askSharing)) ||
                            (i == kStatus && state.inRace && state.raceState < 0) ||
-                           (i == kSettings && shadersPresent() && shadersUse(config().toggleKey));
+                           (i == kSettings && shadersPresent() && shadersUse(config().toggleKey)) ||
+                           (i == kAbout && state.update.status == UpdateInfo::Status::Available);
     if (attention) {
       draw->AddCircleFilled(ImVec2(p.x + w - 14.0f * g_scale, p.y + h * 0.5f), 4.0f * g_scale,
                             col(i == kConnection ? kAccentHi : kWarn));
