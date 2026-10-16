@@ -724,18 +724,29 @@ void check(const std::string& board, int idx, int timeMs = 0) {
   body += "}";
   Response res = post(url("/api/game/bingo"), body, config().token);
   if (!res.ok) {
+    log::line("worker: tile %d on board %s - the site could not be reached (%s)", idx, board.c_str(), res.error.c_str());
     bingoToast("Could not reach the site.");
     return;
   }
   if (revoked(res)) return;
 
   Json data = Json::parse(res.body);
+  // Every answer goes in the log. An automatic submit happens while somebody
+  // is driving, and a refusal they did not see was indistinguishable from a
+  // submit that never happened.
+  log::line("worker: tile %d on board %s - HTTP %d, %s%s%s", idx, board.c_str(), res.status,
+            data.flag("captured") ? "captured" : "not captured", data.str("reason").empty() ? "" : ", reason ",
+            data.str("reason").c_str());
   if (res.status != 200) {
     bingoToast(data.str("error", "That did not work."));
     return;
   }
 
   if (data.flag("captured")) {
+    // The tile under the wheels still says "take it" until the map is reported
+    // again - up to a minute later. Ask now, so the panel shows the tile as
+    // yours instead of offering the button for what was just taken.
+    shared().push(Command{Command::Kind::ReportNow});
     int ms = data.integer("replayTime");
     if (ms > 0) {
       bingoToast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");

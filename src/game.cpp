@@ -852,25 +852,53 @@ void pushFinish(const std::string& uid, int ms, const char* how) {
 // same globals and now run on a different thread from the reads.
 std::mutex g_readLock;
 
+/** Is `player` one of the players this race lists? */
+bool raceHasPlayer(uintptr_t race, uintptr_t player) {
+  int count = 0;
+  if (!readAt<int>(race + 0x24, &count) || count <= 0 || count > 256) return false;
+  const uintptr_t items = deref(race + 0x28);
+  if (!plausible(items)) return false;
+  for (int i = 0; i < count; i++) {
+    if (deref(items + 4 * static_cast<uintptr_t>(i)) == player) return true;
+  }
+  return false;
+}
+
 /**
- * The player sitting at this machine, the way the game finds it.
+ * The player sitting at this machine, found the way Twinkie's dashboard finds
+ * its own car (after brokenphilip).
  *
- * CTrackManiaRace::GetPlayingPlayerInfo is one instruction - `mov eax,
- * [ecx+0x330]` - so that pointer *is* the local player's info. The clock chain
- * used before it walked to the race's player list and took entry 0 instead,
- * which offline is you and on a server is whoever the server listed first: a
- * stranger's 4:38 on screen while the HUD said 0:24, and their finish ready to
- * go on your bingo tile. Reading from this object, rather than checking it
- * against that clock, is what makes the time yours.
+ * `[race+0x330]` is the playing player's info when the game fills it in; on
+ * the 2026-10-16 build it reads 0 in a plain solo race, so that alone found
+ * nothing and every reading fell through to the race's player list. Entry 0 of
+ * that list is you offline, and on a server whoever the server listed first: a
+ * stranger's 4:38 on screen while the HUD said 0:24. When the field is empty
+ * the network's player infos are asked instead - `[app+0x12C]` then the buffer
+ * at +0x2FC, entry 0 - which is the local one on and off a server.
  *
- * Accepted when the object looks like one: a vtable inside the game's image,
- * a race state the game can have, and a clock in range. A countdown reads
- * negative; that is the start line, not a fault.
+ * Accepted only when the pointers close the loop the game keeps - info +0x238
+ * is its player, that player +0x1C is this same info - and that player is in
+ * this race. Measured live: the network entry, the list entry and the player's
+ * own pointer were one object. Then the usual sanity: a vtable inside the
+ * game's image, a race state the game can have, a clock in range. A countdown
+ * reads negative; that is the start line, not a fault.
  */
-uintptr_t localPlayerInfo(uintptr_t race, int* raceTime) {
+uintptr_t localPlayerInfo(uintptr_t app, uintptr_t race, int* raceTime) {
   if (!plausible(race)) return 0;
-  const uintptr_t pi = deref(race + 0x330);
+  uintptr_t pi = deref(race + 0x330);
+  const char* via = "local player (race+0x330)";
+  if (!plausible(pi) && plausible(app)) {
+    const uintptr_t net = deref(app + 0x12C);
+    int size = 0;
+    const uintptr_t items = plausible(net) ? deref(net + 0x2FC + 4) : 0;
+    if (plausible(items) && readAt<int>(net + 0x2FC, &size) && size > 0 && size <= 256) {
+      pi = deref(items);
+      via = "local player (network info 0)";
+    }
+  }
   if (!plausible(pi)) return 0;
+  const uintptr_t player = deref(pi + 0x238);
+  if (!plausible(player) || deref(player + 0x1C) != pi || !raceHasPlayer(race, player)) return 0;
   const uintptr_t vtable = deref(pi);
   const uintptr_t base = exeBase();
   if (vtable < base || vtable >= base + 0x2000000) return 0;
@@ -878,6 +906,7 @@ uintptr_t localPlayerInfo(uintptr_t race, int* raceTime) {
   if (!readAt<int>(pi + kPiRaceState, &state) || state < 0 || state > 3) return 0;
   if (!readAt<int>(pi + kPiRaceTime, &time) || time < -15000 || time > kMaxRaceMs) return 0;
   *raceTime = time < 0 ? 0 : time;
+  g_playerInfoVia = via;
   return pi;
 }
 
@@ -1175,10 +1204,9 @@ Snapshot read() {
   //    here that was ever verified against what the game displayed.
   noteShort("");
   int localTime = -1;
-  const uintptr_t local = localPlayerInfo(race, &localTime);
+  const uintptr_t local = localPlayerInfo(app, race, &localTime);
   if (local) {
     g_timeAddress = local + kPiRaceTime;
-    g_playerInfoVia = "local player (race+0x330)";
   } else if (racePlayerCount(race) > 1) {
     // On a server with no local player to read - spectating, between rounds -
     // every other path below would read somebody else. Better nothing.
