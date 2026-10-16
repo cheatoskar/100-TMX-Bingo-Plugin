@@ -19,6 +19,10 @@ void shutdown();
 // True while the panel is taking input, so the game does not also act on it.
 bool capturingInput();
 
+// Open or close the menu as the key would. For the previewer in tools/preview,
+// which has no game to press F9 in.
+void setMenuOpen(bool open);
+
 // The window procedure the game's window is subclassed with.
 LRESULT CALLBACK wndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 

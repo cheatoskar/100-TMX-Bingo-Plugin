@@ -52,7 +52,7 @@ the link to three friends, and race them for the evening.
 4. In game press **F9 → Connection → Connect**, and approve the code on the
    website that opens.
 5. Join a board at [100tmx.com/events/bingo](https://100tmx.com/events/bingo),
-   pick it on the **Bingo** tab, and drive.
+   pick it on the **Bingo** page, and drive.
 
 ---
 
@@ -165,7 +165,7 @@ There is no browser inside TrackMania, so the mod does not sign in itself: it
 shows a short code, and you approve it on the website where you are already
 signed in.
 
-![The Connection tab, connected](images/ConnectionModalIngsame.png)
+![The Connection page, connected](images/ConnectionModalIngsame.png)
 
 1. In game press **F9**, open **Connection**, press **Connect**.
 2. A code like `ABCD-2345` appears and your browser opens
@@ -211,7 +211,7 @@ diagonals are worth extra.
 2. **Everybody opens the link, signs in with Discord and presses Enter.** That
    is what puts you on the standing. Or join the
    [weekly board](https://100tmx.com/events/bingo), which is open to everyone.
-3. **In game, pick the board** on the **Bingo** tab (F9). The Bingo window now
+3. **In game, pick the board** on the **Bingo** page (F9). The Bingo window now
    shows it while you drive.
 4. **Drive.** Click a tile and press **Play this map** - the running game
    downloads the map and starts it.
@@ -315,7 +315,7 @@ browser extension, which uploads it with your existing session.
    extension.
 2. In game: **F9 → Connection → Upload my replays through the browser**.
 
-   ![Step 1: the upload switch on the Connection tab](images/Step1.png)
+   ![Step 1: the upload switch on the Connection page](images/Step1.png)
 
 3. Go to TMX's upload page. Press connect.
 
@@ -355,7 +355,7 @@ Good to know:
   tells you if no replay turned up; everywhere else a run without a new record
   passes quietly.
 - The mod looks in `Documents\TrackMania` and `Documents\TmForever`. If your
-  replays are elsewhere, set the folder on the Connection tab.
+  replays are elsewhere, set the folder on the Connection page.
 - The connection is local only (`127.0.0.1`), needs the key the mod handed over
   when you pressed Allow, and does not exist while the switch is off.
 
@@ -363,25 +363,36 @@ Good to know:
 
 ## In the game: windows, keys, settings
 
-**F9** opens and closes the settings window.
+**F9** opens and closes the menu. The key can be changed in the menu
+(**Settings -> Keys**); if TM Vibrant Shaders is installed too, keep away from
+F6-F9, F11 and F12, which it uses itself - the menu warns you when you pick one.
 
-The mod shows two windows, each moved and resized on its own:
+The mod shows two panels, each moved and resized on its own, in the look of the
+TM Vibrant Shaders menu:
 
-| Window | Shows |
+| Panel | Shows |
 |---|---|
-| **100% TMX** | the map you are on: open or finished, its worth, messages, replay uploads |
-| **Bingo** | the tile you are on and the time to beat, the grid, the standing - whenever a board is picked or the map you are on is a tile. Drag it wide enough and the tiles become the maps' screenshots. |
+| **100% TMX** | the map you are on as its picture: open or finished, its worth, your finish time and the upload button, messages, replay uploads |
+| **Bingo** | the tile you are on and the time to beat, the board as a grid of map screenshots, the standing - whenever a board is picked or the map you are on is a tile. Click a tile for its map and its buttons. |
 
-While you are **driving**, the windows let clicks through to the game. Standing
+While you are **driving**, the panels let clicks through to the game. Standing
 on the line, paused, on the results screen or back from alt-tab, you can click
-and drag them normally. **F9** always makes them clickable.
+and drag them normally. **F9** always makes them clickable, and the three bars
+in a panel's corner open the menu.
 
-| Settings tab | For |
+The menu opens on the side of the screen the panels are not on:
+
+| Page | For |
 |---|---|
-| **Bingo** | pick the board to show |
-| **Connection** | connect or disconnect this PC, and the replay uploader |
-| **Settings** | automatic tiles, sharing what you play, window size and opacity, when the windows take the mouse |
-| **Status** | game build, mod version, what the mod reads right now - include it in bug reports |
+| **Now playing** | the map you are on in full, your run, and every board it is a tile of |
+| **Bingo** | your boards as cards - click one to show it - and the board tile by tile, with each map's picture, holder and buttons |
+| **Connection** | connect or disconnect this PC, sharing what you play, and the replay uploader |
+| **Settings** | automatic tiles, the panels (pictures, when they take the mouse, size, opacity, corner) and the menu key |
+| **Status** | game build, mod version, the race clock, what the mod reads right now - include it in bug reports |
+| **About** | what the mod does and does not do, and links |
+
+Anything that cannot be taken back - disconnecting, forgetting the race clock -
+asks first.
 
 Everything is stored in `Documents\100TMX\config.ini`. Deleting it forgets the
 machine completely.
@@ -413,7 +424,7 @@ and compare the SHA-256 with the release.
 
 **"This TrackMania build is not recognised."** TrackMania Forever exists in
 several builds and the mod only reads a build it can verify. Note the build id
-on the **Status** tab and open an issue with it, the game (Nations/United) and
+on the **Status** page and open an issue with it, the game (Nations/United) and
 how you start it (ModLoader, ASI, Steam).
 
 <details>
@@ -472,7 +483,7 @@ hashes - with [`RELEASE_NOTES.md`](RELEASE_NOTES.md) at the top of its notes.
 |---|---|
 | `dllmain.cpp` | starts the mod's threads and gets out of the loader's way |
 | `hook.cpp` | hooks Direct3D 9 `EndScene`/`Reset` to draw the overlay |
-| `overlay.cpp` | the two windows and the settings window |
+| `overlay.cpp` | the two panels and the menu |
 | `game.cpp` | reads the game's state - map, race clock, finish, speed - read-only, every pointer guarded |
 | `worker.cpp` | everything that talks to the website, on its own thread |
 | `bridge.cpp` | the local connection for the browser extension |
