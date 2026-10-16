@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <wincrypt.h>
 
 #include <algorithm>
 #include <cmath>
@@ -13,14 +14,83 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "game.h"
+#include "log.h"
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "crypt32.lib")
 
 namespace tmx {
 namespace {
+
+/*
+ * The machine token, sealed with DPAPI to the Windows account that linked it.
+ *
+ * It sat in config.ini as plain text, and that file is the one people attach
+ * to a bug report, sync to a cloud drive or show on stream. Sealed, a copy of
+ * the file is worth nothing on another account or machine: the token simply
+ * does not open, and the mod asks to connect again. What it is not is a
+ * defence against a program already running as you - nothing a game mod can
+ * store is; that one can read the token out of the mod's memory as well.
+ *
+ * A token that cannot be sealed is written as before rather than dropped:
+ * losing the link over it would be worse than the plain text.
+ */
+const char kSealed[] = "dpapi:";
+const char kEntropy[] = "100tmx machine token";
+
+std::string sealToken(const std::string& token) {
+  if (token.empty()) return token;
+  DATA_BLOB in{static_cast<DWORD>(token.size()), reinterpret_cast<BYTE*>(const_cast<char*>(token.data()))};
+  DATA_BLOB entropy{static_cast<DWORD>(sizeof(kEntropy) - 1), reinterpret_cast<BYTE*>(const_cast<char*>(kEntropy))};
+  DATA_BLOB out{};
+  if (!CryptProtectData(&in, L"100% TMX", &entropy, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return token;
+  const DWORD format = CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF;
+  std::string text;
+  DWORD chars = 0;
+  if (CryptBinaryToStringA(out.pbData, out.cbData, format, nullptr, &chars) && chars > 0) {
+    text.resize(chars);
+    if (CryptBinaryToStringA(out.pbData, out.cbData, format, &text[0], &chars)) text.resize(chars);
+    else text.clear();
+  }
+  LocalFree(out.pbData);
+  return text.empty() ? token : kSealed + text;
+}
+
+/** The token as stored, opened. `plain` says it was still written in clear. */
+std::string openToken(const std::string& stored, bool* plain) {
+  *plain = false;
+  if (stored.rfind(kSealed, 0) != 0) {
+    *plain = !stored.empty();
+    return stored;
+  }
+  const std::string text = stored.substr(sizeof(kSealed) - 1);
+  DWORD bytes = 0;
+  if (!CryptStringToBinaryA(text.c_str(), static_cast<DWORD>(text.size()), CRYPT_STRING_BASE64, nullptr, &bytes,
+                            nullptr, nullptr) ||
+      bytes == 0) {
+    return std::string();
+  }
+  std::vector<BYTE> raw(bytes);
+  if (!CryptStringToBinaryA(text.c_str(), static_cast<DWORD>(text.size()), CRYPT_STRING_BASE64, raw.data(), &bytes,
+                            nullptr, nullptr)) {
+    return std::string();
+  }
+  DATA_BLOB in{bytes, raw.data()};
+  DATA_BLOB entropy{static_cast<DWORD>(sizeof(kEntropy) - 1), reinterpret_cast<BYTE*>(const_cast<char*>(kEntropy))};
+  DATA_BLOB out{};
+  if (!CryptUnprotectData(&in, nullptr, &entropy, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+    log::line("config: the saved machine link belongs to another Windows account or PC - connect again");
+    return std::string();
+  }
+  std::string token(reinterpret_cast<const char*>(out.pbData), out.cbData);
+  SecureZeroMemory(out.pbData, out.cbData);
+  LocalFree(out.pbData);
+  return token;
+}
 
 // Wide all the way to the file system. The path used to be turned into UTF-8
 // and handed to the ANSI functions, which read those bytes in the system code
@@ -104,6 +174,7 @@ void Config::load() {
   std::string line;
   game::Offsets custom;
   bool haveCustom = false;
+  bool reseal = false;  // a token from before sealing: written back sealed
   offsetLines.clear();
 
   while (std::getline(file, line)) {
@@ -121,7 +192,11 @@ void Config::load() {
 
     if (section == "site") {
       if (key == "url" && !value.empty()) baseUrl = value;
-      else if (key == "token") token = value;
+      else if (key == "token") {
+        bool plain = false;
+        token = openToken(value, &plain);
+        reseal = reseal || plain;
+      }
     } else if (section == "mod") {
       if (key == "share") shareWhatIAmPlaying = asBool(value, shareWhatIAmPlaying);
       else if (key == "auto_submit") autoSubmitSelfReported = asBool(value, autoSubmitSelfReported);
@@ -185,6 +260,7 @@ void Config::load() {
     if (custom.name.empty()) custom.name = "custom";
     game::addProfile(custom);
   }
+  if (reseal) save();
 }
 
 namespace {
@@ -247,7 +323,7 @@ void Config::save() const {
          << "; Delete this file to forget the machine link entirely.\n\n"
          << "[site]\n"
          << "url = " << baseUrl << "\n"
-         << "token = " << token << "\n\n"
+         << "token = " << sealToken(token) << "\n\n"
          << "[mod]\n"
          << "share = " << (shareWhatIAmPlaying ? "true" : "false") << "\n"
          << "auto_submit = " << (autoSubmitSelfReported ? "true" : "false") << "\n"

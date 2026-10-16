@@ -195,6 +195,11 @@ there is nothing else to set up in the game. You can disconnect from the mod, or
 from [100tmx.com/link](https://100tmx.com/link), at any time; the machine's
 token stops working at once.
 
+The token is stored in `Documents\100TMX\config.ini`, encrypted for your Windows
+account (DPAPI). A copy of that file is useless on another PC or account - the
+mod there simply asks to connect again. Windows 7 needs update KB3140245 for the
+TLS 1.2 every connection uses.
+
 ---
 
 ## Playing bingo with friends

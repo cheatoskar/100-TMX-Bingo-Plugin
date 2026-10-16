@@ -40,10 +40,23 @@ uintptr_t exeBase() {
   return g_base;
 }
 
+// The top of this process's address space. TmForever under the ModLoader is
+// large-address-aware, so on 64-bit Windows its heap runs up to 4 GB; a fixed
+// 2 GB ceiling turned every object allocated above it - a long session, a big
+// map, a shader mod alongside - into "no race" until the game was restarted.
+uintptr_t topAddress() {
+  static const uintptr_t top = [] {
+    SYSTEM_INFO info{};
+    GetSystemInfo(&info);
+    return reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
+  }();
+  return top;
+}
+
 // A pointer that could plausibly be one. Cheap first gate before the guarded
 // read, because most wrong offsets produce either zero or something tiny.
 bool plausible(uintptr_t address) {
-  return address > 0x10000 && address < 0x7FFF0000;
+  return address > 0x10000 && address < topAddress();
 }
 
 // Which faults a guarded read may swallow. An access violation, yes. A guard

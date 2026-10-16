@@ -23,7 +23,9 @@
 #include <shlobj.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "tmx_version.h"
 
@@ -249,6 +251,79 @@ void pinInProfiles(const std::wstring& loader, const std::wstring& version) {
   FindClose(handle);
 }
 
+// Take this mod out of every profile, with the keys under its entry.
+//
+// Uninstalling used to run the same rename as installing: the old id became
+// the product id, in a profile that kept it ticked - while the product folder
+// was being deleted. The loader resolves every ticked mod before it starts the
+// game, so the next launch failed with "failed to find required products" and
+// the game did not start at all until somebody edited the profile by hand.
+void removeFromProfiles(const std::wstring& loader) {
+  const std::wstring dir = loader + L"\\database\\TmForever\\profiles";
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((dir + L"\\*.yaml").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return;
+
+  std::vector<std::string> ids = {wide(kProduct)};
+  for (const wchar_t* old : kOldProducts) ids.push_back(wide(old));
+  do {
+    const std::wstring path = dir + L"\\" + find.cFileName;
+    std::string text;
+    {
+      HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (file == INVALID_HANDLE_VALUE) continue;
+      char buffer[8192];
+      DWORD read = 0;
+      while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
+      CloseHandle(file);
+    }
+    if (text.empty() || text.size() > 64 * 1024) continue;
+
+    // Line by line: an entry is "- id: <id>" (the id bare or quoted) and the
+    // indented lines under it, up to the next "-" or anything less indented.
+    std::string kept;
+    bool changed = false;
+    size_t skipDeeperThan = std::string::npos;  // indent of the entry being dropped
+    for (size_t at = 0; at < text.size();) {
+      size_t end = text.find('\n', at);
+      end = end == std::string::npos ? text.size() : end + 1;
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      const size_t indent = line.find_first_not_of(' ');
+      const bool blank = indent == std::string::npos || line[indent] == '\r' || line[indent] == '\n';
+      if (skipDeeperThan != std::string::npos) {
+        if (!blank && indent > skipDeeperThan && line[indent] != '-') {
+          changed = true;
+          continue;
+        }
+        skipDeeperThan = std::string::npos;
+      }
+      if (!blank && line.compare(indent, 6, "- id: ") == 0) {
+        std::string id = line.substr(indent + 6);
+        while (!id.empty() && (id.back() == '\r' || id.back() == '\n' || id.back() == ' ')) id.pop_back();
+        if (id.size() >= 2 && (id.front() == '\'' || id.front() == '"') && id.back() == id.front()) {
+          id = id.substr(1, id.size() - 2);
+        }
+        if (std::find(ids.begin(), ids.end(), id) != ids.end()) {
+          skipDeeperThan = indent;
+          changed = true;
+          continue;
+        }
+      }
+      kept += line;
+    }
+    if (!changed) continue;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) continue;
+    DWORD written = 0;
+    WriteFile(file, kept.data(), static_cast<DWORD>(kept.size()), &written, nullptr);
+    CloseHandle(file);
+  } while (FindNextFileW(handle, &find));
+  FindClose(handle);
+}
+
 int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
   if (g_quiet) return IDOK;
   return MessageBoxW(nullptr, text.c_str(), kTitle, MB_OK | icon);
@@ -275,7 +350,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int) {
   if (uninstall) {
     removeVersionDir(product);
     for (const wchar_t* old : kOldProducts) removeVersionDir(products + L"\\" + old);
-    renameInProfiles(loader, kProduct, L"");
+    removeFromProfiles(loader);
     if (!quiet) say(L"100% TMX + Bingo has been removed from the ModLoader.\n\nYour settings in Documents\\100TMX are left alone.");
     return 0;
   }

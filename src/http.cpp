@@ -88,6 +88,16 @@ Response request(const std::string& method,
     return out;
   }
   WinHttpSetTimeouts(session, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+  // WinHTTP on Windows 7 offers TLS 1.0 and 1.1 only unless asked, and the
+  // site, TMX and GitHub all refuse those - the mod was simply offline there.
+  // 1.3 is asked for too where Windows knows it; where it does not, the option
+  // is refused as a whole and 1.2 alone is asked for. Windows 7 needs update
+  // KB3140245 for either; without it nothing here can help.
+  DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | 0x00002000;  // | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3
+  if (!WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols))) {
+    protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+    WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+  }
 
   Handle connection(WinHttpConnect(session, host, parts.nPort, 0));
   if (!connection) {
