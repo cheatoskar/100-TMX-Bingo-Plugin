@@ -124,6 +124,14 @@ jobs:
           Compress-Archive -Path pkg/* -DestinationPath out/100TMX.zip -Force
           Get-ChildItem -Recurse pkg | Select-Object FullName, Length
 
+      # What the ModLoader's update server hands out: the DLL alone, flat. The
+      # ModLoader unpacks it into products\100% TMX + Bingo\<version>\ and writes
+      # description.yaml itself from the server's index. Not for people - they
+      # take 100TMX.zip. Same DLL, same bytes (fixed timestamp).
+      - name: ModLoader zip
+        shell: bash
+        run: python tools/modloader_server.py zip --dll build/Release/100TMX.dll --out out/100TMX-ModLoader-server.zip
+
       # A fingerprint of every file, so anybody can check that what they
       # downloaded is byte for byte what this build produced - the honest answer
       # to "a scanner flagged it, is it really yours?". Written twice: as
@@ -132,7 +140,7 @@ jobs:
       - name: Hashes
         shell: pwsh
         run: |
-          $files = "100TMX.zip", "100TMX.dll", "100TMX.asi", "tmx_version.h"
+          $files = "100TMX.zip", "100TMX.dll", "100TMX.asi", "tmx_version.h", "100TMX-ModLoader-server.zip"
           $sums = foreach ($f in $files) {
             $h = (Get-FileHash "out/$f" -Algorithm SHA256).Hash.ToLower()
             "$h  $f"
@@ -155,6 +163,8 @@ jobs:
           }
           $body += ""
           $body += "Check a download in PowerShell: ``Get-FileHash .\100TMX.zip -Algorithm SHA256``"
+          $body += ""
+          $body += "``100TMX-ModLoader-server.zip`` is what the ModLoader's update server hands out (the DLL alone). To install by hand, take ``100TMX.zip``."
           $body | Set-Content -Encoding utf8 out/release-notes.md
           Get-Content out/SHA256SUMS.txt
 
@@ -172,6 +182,7 @@ jobs:
             out/100TMX.dll
             out/100TMX.asi
             out/tmx_version.h
+            out/100TMX-ModLoader-server.zip
             out/SHA256SUMS.txt
           # The notes and hash table first; GitHub's generated notes follow.
           body_path: out/release-notes.md
@@ -180,3 +191,62 @@ jobs:
           # v0.2.0 did.
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  # The ModLoader update server: modloader/index.json (stable releases) and
+  # modloader/beta/index.json (with pre-releases) on GitHub Pages, served from
+  # the gh-pages branch. Rebuilt after every tag's release from all releases
+  # that carry 100TMX-ModLoader-server.zip, so the index lists every version.
+  # Run the workflow by hand to rebuild it without a release.
+  # One-time setup: Settings -> Pages -> Deploy from a branch -> gh-pages, / (root).
+  modloader-server:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: modloader-server
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Releases from before the server (1.0.0 and later) get their
+      # 100TMX-ModLoader-server.zip made from their own 100TMX.dll - the zip
+      # holds nothing else. Only missing ones; once. Off unless the repository
+      # variable MODLOADER_BACKFILL is 1: it changes published releases.
+      - name: Backfill older releases
+        if: ${{ vars.MODLOADER_BACKFILL == '1' }}
+        run: |
+          for tag in $(python3 tools/modloader_server.py missing); do
+            rm -rf backfill && mkdir backfill
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -p 100TMX.dll -D backfill
+            python3 tools/modloader_server.py zip --dll backfill/100TMX.dll --out backfill/100TMX-ModLoader-server.zip
+            gh release upload "$tag" -R "$GITHUB_REPOSITORY" backfill/100TMX-ModLoader-server.zip
+          done
+
+      # Product name and description come from install-modloader.ps1, the
+      # changelog from each release's notes. Hashes come from downloading each
+      # zip through its release link, as the ModLoader will.
+      - name: Index
+        run: |
+          python3 tools/modloader_server.py index --out-dir site/modloader
+          python3 tools/modloader_server.py check site/modloader/index.json site/modloader/beta/index.json
+          touch site/.nojekyll
+          # The icon the index points at, served next to it.
+          cp images/icon.png site/modloader/icon.png
+          for dir in site/modloader site/modloader/beta; do
+            printf '<!doctype html><meta charset="utf-8"><title>100%% TMX + Bingo ModLoader server</title><p>TrackMania ModLoader update server for <a href="https://github.com/%s">100%% TMX + Bingo</a>. Add <code>https://%s.github.io/%s/%s/</code> under <code>servers:</code> in <code>%%LOCALAPPDATA%%\\TMLoader\\config.yaml</code>. Versions: <a href="index.json">index.json</a>.</p>\n' \
+              "$GITHUB_REPOSITORY" "${GITHUB_REPOSITORY_OWNER,,}" "${GITHUB_REPOSITORY#*/}" "${dir#site/}" > "$dir/index.html"
+          done
+
+      # The site is generated whole each time: one fresh commit, force-pushed.
+      - name: Publish to gh-pages
+        run: |
+          cd site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "ModLoader server from ${GITHUB_REF_NAME} (${GITHUB_SHA::7})"
+          git push -f -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

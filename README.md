@@ -16,8 +16,10 @@ send the link to a few friends, and race them for the evening.
 ## Quick start
 
 1. Install the [TrackMania ModLoader](https://tomashu.dev/software/tmloader/).
-2. Download `100TMX.zip` from [Releases](../../releases/latest), extract it and
-   run `100TMX-Installer.exe`.
+2. Add the mod's update server to the ModLoader, see
+   [Install with ModLoader](#install-with-modloader-recommended-auto-updates)
+   (or download `100TMX.zip` from [Releases](../../releases/latest), extract it
+   and run `100TMX-Installer.exe`).
 3. Open the ModLoader, tick **100% TMX + Bingo** and start the game.
 4. Press **F9 → Connection → Connect** and approve the code on the page that
    opens.
@@ -25,6 +27,33 @@ send the link to a few friends, and race them for the evening.
    pick it on the **Bingo** page in game, and drive.
 
 ## Installing
+
+### Install with ModLoader (recommended, auto-updates)
+
+The ModLoader downloads the mod itself and installs every new version on its
+own. Nothing to download, nothing to run.
+
+1. Close the ModLoader completely, including the tray icon.
+2. Open `%LOCALAPPDATA%\TMLoader\config.yaml` with Notepad (paste the path into
+   the Explorer address bar).
+3. Add this line under `servers:`, with two spaces in front like the lines
+   already there, and save:
+
+   ```yaml
+   servers:
+     # ... the servers that are already there ...
+     - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
+   ```
+
+4. Start the ModLoader. **100% TMX + Bingo** appears in its list; pick it, tick
+   it in your profile and start the game.
+
+New versions then arrive through the ModLoader's auto update (*Auto Update* in
+its settings). A copy installed earlier with the installer lives in the same
+folder (`products\100% TMX + Bingo\<version>`); the ModLoader keeps it and adds
+newer versions next to it. Old versions can be removed in the ModLoader.
+
+### With the installer or by hand
 
 The zip contains the installer, a `README.txt` (English and German) and the
 `100% TMX + Bingo` folder. The installer does nothing but copy that folder into
@@ -35,7 +64,8 @@ If you'd rather not run the installer, copy the folder yourself into
 Explorer address bar). If an older version is already there, let Windows merge
 the folders.
 
-**Updating:** the mod tells you when a new version is out (also under
+**Updating:** with the update server above, nothing to do. Otherwise the mod
+tells you when a new version is out (also under
 **About**). Install it the same way, then close the ModLoader completely,
 including the tray icon, and start it again. It only picks up new versions on
 startup.
@@ -260,6 +290,30 @@ cmake --build build --config Release
 That gives you `100TMX.dll` and `100TMX-Installer.exe` in `build/Release`.
 Dear ImGui is fetched by CMake. Pushing a `v*` tag builds a release with
 [`RELEASE_NOTES.md`](RELEASE_NOTES.md) as its description.
+
+### Releases and the ModLoader update server
+
+Each release also carries `100TMX-ModLoader-server.zip`: the DLL alone, which
+the ModLoader unpacks into `products\100% TMX + Bingo\<version>\`. After a
+tag's release the job `modloader-server` rebuilds the update server on GitHub
+Pages (branch `gh-pages`): `modloader/index.json` lists every release that
+carries that zip and isn't a pre-release, `modloader/beta/index.json` all of
+them, each with the zip's SHA-256 and the release notes as changelog. Product
+name, description and dependencies come from `install-modloader.ps1`; the icon
+is `images/icon.png`, served next to the index. Running the workflow by hand
+rebuilds the server without a release.
+
+- **One-time setup:** *Settings → Pages → Build and deployment → Deploy from a
+  branch → `gh-pages`, `/ (root)`* (the branch exists after the first tag
+  build). Until then the server URL answers 404.
+- Releases from before the server have no `100TMX-ModLoader-server.zip` and
+  aren't listed. The repository variable `MODLOADER_BACKFILL=1` makes the job
+  add it to 1.0.0 and later from their own `100TMX.dll`; it changes published
+  releases, so it's off by default.
+- Check the format locally (no network):
+  `python tools/modloader_server.py selftest` (uses `build/Release/100TMX.dll`
+  if built; `--reference https://fullspeed.mooo.com/modloader/index.json`
+  compares with a working server).
 
 | File | |
 |---|---|
