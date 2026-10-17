@@ -1,2 +1,9 @@
 build/
 *.user
+
+# Build output. Releases carry the binaries; the repo carries the source.
+*.dll
+*.asi
+*.exe
+*.obj
+*.pdb

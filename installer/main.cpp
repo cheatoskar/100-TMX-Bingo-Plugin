@@ -23,7 +23,9 @@
 #include <shlobj.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "tmx_version.h"
 
@@ -179,6 +181,149 @@ void renameInProfiles(const std::wstring& loader, const std::wstring& to, const 
   FindClose(handle);
 }
 
+// Point every profile that has this mod at a fixed version to `version`.
+//
+// The ModLoader writes `version:` under a ticked mod as soon as somebody picks
+// one in its list, and from then on loads that version and no other. An update
+// then installed nothing anyone runs: the new folder sat beside the old one and
+// the game kept loading the old DLL, with no hint anywhere. Called only after
+// the new version folder is in place - a pin to a version that is missing
+// stops the whole launch.
+void pinInProfiles(const std::wstring& loader, const std::wstring& version) {
+  const std::wstring dir = loader + L"\\database\\TmForever\\profiles";
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((dir + L"\\*.yaml").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return;
+
+  const std::string id = wide(kProduct);
+  const std::string to = wide(version);
+  const std::string needles[] = {"id: " + id, "id: '" + id + "'", "id: \"" + id + "\""};
+  do {
+    const std::wstring path = dir + L"\\" + find.cFileName;
+    std::string text;
+    {
+      HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (file == INVALID_HANDLE_VALUE) continue;
+      char buffer[8192];
+      DWORD read = 0;
+      while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
+      CloseHandle(file);
+    }
+    if (text.empty() || text.size() > 64 * 1024) continue;
+
+    bool changed = false;
+    for (const std::string& needle : needles) {
+      for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
+        const size_t after = at + needle.size();
+        if (after < text.size() && text[after] != '\n' && text[after] != '\r') continue;  // a whole id only
+        // The keys of this entry are the lines below it that are indented and
+        // do not start the next entry ("- id: ...").
+        size_t line = text.find('\n', at);
+        while (line != std::string::npos) {
+          const size_t start = line + 1;
+          const size_t key = text.find_first_not_of(' ', start);
+          if (key == std::string::npos || key == start || text[key] == '-' || text[key] == '\r' || text[key] == '\n') break;
+          if (text.compare(key, 8, "version:") == 0) {
+            const size_t value = text.find_first_not_of(' ', key + 8);
+            const size_t end = text.find_first_of("\r\n", key);
+            if (value != std::string::npos && value < end) {
+              const size_t stop = end == std::string::npos ? text.size() : end;
+              if (text.compare(value, stop - value, to) != 0) {
+                text.replace(value, stop - value, to);
+                changed = true;
+              }
+            }
+            break;
+          }
+          line = text.find('\n', start);
+        }
+      }
+    }
+    if (!changed) continue;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) continue;
+    DWORD written = 0;
+    WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+  } while (FindNextFileW(handle, &find));
+  FindClose(handle);
+}
+
+// Take this mod out of every profile, with the keys under its entry.
+//
+// Uninstalling used to run the same rename as installing: the old id became
+// the product id, in a profile that kept it ticked - while the product folder
+// was being deleted. The loader resolves every ticked mod before it starts the
+// game, so the next launch failed with "failed to find required products" and
+// the game did not start at all until somebody edited the profile by hand.
+void removeFromProfiles(const std::wstring& loader) {
+  const std::wstring dir = loader + L"\\database\\TmForever\\profiles";
+  WIN32_FIND_DATAW find{};
+  HANDLE handle = FindFirstFileW((dir + L"\\*.yaml").c_str(), &find);
+  if (handle == INVALID_HANDLE_VALUE) return;
+
+  std::vector<std::string> ids = {wide(kProduct)};
+  for (const wchar_t* old : kOldProducts) ids.push_back(wide(old));
+  do {
+    const std::wstring path = dir + L"\\" + find.cFileName;
+    std::string text;
+    {
+      HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (file == INVALID_HANDLE_VALUE) continue;
+      char buffer[8192];
+      DWORD read = 0;
+      while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
+      CloseHandle(file);
+    }
+    if (text.empty() || text.size() > 64 * 1024) continue;
+
+    // Line by line: an entry is "- id: <id>" (the id bare or quoted) and the
+    // indented lines under it, up to the next "-" or anything less indented.
+    std::string kept;
+    bool changed = false;
+    size_t skipDeeperThan = std::string::npos;  // indent of the entry being dropped
+    for (size_t at = 0; at < text.size();) {
+      size_t end = text.find('\n', at);
+      end = end == std::string::npos ? text.size() : end + 1;
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      const size_t indent = line.find_first_not_of(' ');
+      const bool blank = indent == std::string::npos || line[indent] == '\r' || line[indent] == '\n';
+      if (skipDeeperThan != std::string::npos) {
+        if (!blank && indent > skipDeeperThan && line[indent] != '-') {
+          changed = true;
+          continue;
+        }
+        skipDeeperThan = std::string::npos;
+      }
+      if (!blank && line.compare(indent, 6, "- id: ") == 0) {
+        std::string id = line.substr(indent + 6);
+        while (!id.empty() && (id.back() == '\r' || id.back() == '\n' || id.back() == ' ')) id.pop_back();
+        if (id.size() >= 2 && (id.front() == '\'' || id.front() == '"') && id.back() == id.front()) {
+          id = id.substr(1, id.size() - 2);
+        }
+        if (std::find(ids.begin(), ids.end(), id) != ids.end()) {
+          skipDeeperThan = indent;
+          changed = true;
+          continue;
+        }
+      }
+      kept += line;
+    }
+    if (!changed) continue;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) continue;
+    DWORD written = 0;
+    WriteFile(file, kept.data(), static_cast<DWORD>(kept.size()), &written, nullptr);
+    CloseHandle(file);
+  } while (FindNextFileW(handle, &find));
+  FindClose(handle);
+}
+
 int say(const std::wstring& text, UINT icon = MB_ICONINFORMATION) {
   if (g_quiet) return IDOK;
   return MessageBoxW(nullptr, text.c_str(), kTitle, MB_OK | icon);
@@ -205,7 +350,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int) {
   if (uninstall) {
     removeVersionDir(product);
     for (const wchar_t* old : kOldProducts) removeVersionDir(products + L"\\" + old);
-    renameInProfiles(loader, kProduct, L"");
+    removeFromProfiles(loader);
     if (!quiet) say(L"100% TMX + Bingo has been removed from the ModLoader.\n\nYour settings in Documents\\100TMX are left alone.");
     return 0;
   }
@@ -255,6 +400,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int) {
         MB_ICONERROR);
     return 1;
   }
+  pinInProfiles(loader, kVersion);
 
   if (!quiet) {
     say(std::wstring(L"100% TMX + Bingo ") + kVersion + L" is installed.\n\n"

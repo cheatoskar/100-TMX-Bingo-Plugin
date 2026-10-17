@@ -5,7 +5,9 @@
 // thing it holds is a token that speaks for their account.
 #pragma once
 
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace tmx {
 
@@ -30,6 +32,11 @@ struct Config {
   bool shareWhatIAmPlaying = true;
 
   bool overlay = true;
+  /** The Bingo panel, closed and opened on its own. */
+  bool bingoPanel = true;
+  /** Folded down to the title row; the panel stays where it is. */
+  bool overlayMin = false;
+  bool bingoMin = false;
   int overlayCorner = 0;     // 0 left, 1 right - only the starting side
   // Where the panel was last dragged to. NaN-ish -1 means "never moved", in
   // which case the corner above decides.
@@ -61,6 +68,11 @@ struct Config {
 
   // The board the panel is showing, remembered across sessions.
   std::string board;
+
+  /** Ask GitHub for the newest release once per game start. */
+  bool checkUpdates = true;
+  /** A release put off with "Later": the panel stops mentioning that one. */
+  std::string skippedUpdate;
 
   /**
    * Put a finish straight onto a self-reported board without asking.
@@ -124,9 +136,53 @@ struct Config {
    */
   std::string replayDir;
 
+  /** The page the menu was last left on. */
+  int menuPage = 0;
+
+  /** Map pictures in the panels. Off makes them compact text readouts. */
+  bool panelImages = true;
+
+  /**
+   * The `[offsets]` lines as they were read, written back as they were.
+   *
+   * They are the escape hatch for a build nobody has added yet, typed by hand,
+   * and the first save used to drop them - so the hatch closed itself the
+   * moment a panel was dragged.
+   */
+  std::vector<std::string> offsetLines;
+
   std::string path() const;
   void load();
+  /**
+   * Builds the text here and hands it to a writer thread, which puts it in a
+   * temp file and moves that over the old one. Any thread.
+   */
   void save() const;
+
+  /**
+   * Change it from any thread, then save.
+   *
+   * Four threads touch this struct - the worker, the game reader, the render
+   * thread and the bridge - and a std::string assigned on one while another
+   * copies it is a torn read at best and a freed buffer at worst. The strings
+   * that cross threads (token, board, bridge key, replay folder, the clock
+   * chain) are written through here and read through `copy`.
+   */
+  template <typename Fn>
+  void edit(Fn fn) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    fn(*this);
+    save();
+  }
+
+  /** A locked copy of one string, for a thread that does not own it. */
+  std::string copy(const std::string& field) const {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    return field;
+  }
+
+ private:
+  mutable std::recursive_mutex mutex_;
 };
 
 Config& config();

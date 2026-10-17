@@ -18,7 +18,7 @@ namespace log {
 namespace {
 
 std::mutex g_lock;
-std::string g_path;
+std::wstring g_path;
 std::map<std::string, std::string> g_last;
 bool g_ready = false;
 
@@ -26,19 +26,19 @@ const long long kMaxBytes = 1024 * 1024;
 
 // Deliberately not using Config::path(): the log has to work before anything
 // else is initialised, including the config it would otherwise depend on.
-std::string logPath() {
+//
+// Wide, not UTF-8 handed to the ANSI functions: those read the bytes in the
+// system code page, and for a user name with an umlaut the log simply never
+// appeared - on exactly the machines somebody would need it to debug.
+std::wstring logPath() {
   wchar_t* raw = nullptr;
-  std::string dir;
-  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &raw)) && raw) {
-    int size = WideCharToMultiByte(CP_UTF8, 0, raw, -1, nullptr, 0, nullptr, nullptr);
-    dir.resize(static_cast<size_t>(size > 0 ? size - 1 : 0));
-    WideCharToMultiByte(CP_UTF8, 0, raw, -1, &dir[0], size, nullptr, nullptr);
-  }
+  std::wstring dir;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &raw)) && raw) dir = raw;
   if (raw) CoTaskMemFree(raw);
-  if (dir.empty()) return "100TMX-log.txt";
-  dir += "\\100TMX";
-  CreateDirectoryA(dir.c_str(), nullptr);
-  return dir + "\\log.txt";
+  if (dir.empty()) return L"100TMX-log.txt";
+  dir += L"\\100TMX";
+  CreateDirectoryW(dir.c_str(), nullptr);
+  return dir + L"\\log.txt";
 }
 
 void ensureReady() {
@@ -47,14 +47,14 @@ void ensureReady() {
   g_path = logPath();
 
   WIN32_FILE_ATTRIBUTE_DATA info{};
-  if (GetFileAttributesExA(g_path.c_str(), GetFileExInfoStandard, &info)) {
+  if (GetFileAttributesExW(g_path.c_str(), GetFileExInfoStandard, &info)) {
     long long size = (static_cast<long long>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-    if (size > kMaxBytes) DeleteFileA(g_path.c_str());
+    if (size > kMaxBytes) DeleteFileW(g_path.c_str());
   }
 
   SYSTEMTIME now{};
   GetLocalTime(&now);
-  if (FILE* f = nullptr; fopen_s(&f, g_path.c_str(), "a") == 0 && f) {
+  if (FILE* f = nullptr; _wfopen_s(&f, g_path.c_str(), L"a") == 0 && f) {
     fprintf(f, "\n=== 100TMX mod started %04d-%02d-%02d %02d:%02d:%02d (pid %lu) ===\n", now.wYear, now.wMonth,
             now.wDay, now.wHour, now.wMinute, now.wSecond, GetCurrentProcessId());
     fclose(f);
@@ -91,8 +91,16 @@ FILE* g_file = nullptr;
 
 void writeNow(const Pending& line) {
   const SYSTEMTIME& at = line.at;
-  if (!g_file) g_file = _fsopen(g_path.c_str(), "a", _SH_DENYNO);
+  if (!g_file) g_file = _wfsopen(g_path.c_str(), L"a", _SH_DENYNO);
   if (!g_file) return;
+  // The size used to be checked only at start, so a session that ran for days
+  // could grow the file without bound. Past the limit it starts over.
+  if (ftell(g_file) > kMaxBytes) {
+    fclose(g_file);
+    DeleteFileW(g_path.c_str());
+    g_file = _wfsopen(g_path.c_str(), L"a", _SH_DENYNO);
+    if (!g_file) return;
+  }
   fprintf(g_file, "%02d:%02d:%02d.%03d  %s\n", at.wHour, at.wMinute, at.wSecond, at.wMilliseconds, line.text.c_str());
   fflush(g_file);
 }

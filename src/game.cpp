@@ -40,10 +40,43 @@ uintptr_t exeBase() {
   return g_base;
 }
 
+// The top of this process's address space. TmForever under the ModLoader is
+// large-address-aware, so on 64-bit Windows its heap runs up to 4 GB; a fixed
+// 2 GB ceiling turned every object allocated above it - a long session, a big
+// map, a shader mod alongside - into "no race" until the game was restarted.
+uintptr_t topAddress() {
+  static const uintptr_t top = [] {
+    SYSTEM_INFO info{};
+    GetSystemInfo(&info);
+    return reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
+  }();
+  return top;
+}
+
 // A pointer that could plausibly be one. Cheap first gate before the guarded
 // read, because most wrong offsets produce either zero or something tiny.
 bool plausible(uintptr_t address) {
-  return address > 0x10000 && address < 0x7FFF0000;
+  return address > 0x10000 && address < topAddress();
+}
+
+// Which faults a guarded read may swallow. An access violation, yes. A guard
+// page, only after putting the guard back: the fault clears it, and when the
+// page is the end of another thread's stack that thread could no longer grow
+// it - a crash much later, somewhere that has nothing to do with this read.
+// Everything else is not ours to hide.
+int readFilter(EXCEPTION_POINTERS* info) {
+  const DWORD code = info->ExceptionRecord->ExceptionCode;
+  if (code == EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_EXECUTE_HANDLER;
+  if (code == STATUS_GUARD_PAGE_VIOLATION) {
+    if (info->ExceptionRecord->NumberParameters >= 2) {
+      void* page = reinterpret_cast<void*>(info->ExceptionRecord->ExceptionInformation[1] & ~uintptr_t(0xFFF));
+      MEMORY_BASIC_INFORMATION mbi{};
+      DWORD old = 0;
+      if (VirtualQuery(page, &mbi, sizeof(mbi))) VirtualProtect(page, 1, mbi.Protect | PAGE_GUARD, &old);
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+  }
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 // The guarded read. SEH rather than IsBadReadPtr, which races with anything
@@ -54,7 +87,7 @@ bool readRaw(uintptr_t address, void* out, size_t size) {
   __try {
     memcpy(out, reinterpret_cast<const void*>(address), size);
     return true;
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  } __except (readFilter(GetExceptionInformation())) {
     return false;
   }
 }
@@ -75,6 +108,16 @@ using GetIdNameFn = void*(__thiscall*)(unsigned int* id, CFastString* out);
 // here is a jump into arbitrary code, so the profile is only ever trusted after
 // this has produced something that looks like a UID.
 bool callGetIdName(uintptr_t fn, unsigned int id, CFastString* out) {
+  // CMwId::GetName opens with MSVC's exception-frame prologue: push -1,
+  // push <handler>, mov eax, fs:[0]. On a build where the offset lands
+  // anywhere else - the middle of some other function - a call would not
+  // necessarily fault; it could just as well write somewhere and carry on,
+  // which no handler can undo. So nothing is called unless those bytes match.
+  unsigned char head[13] = {};
+  if (!readRaw(fn, head, sizeof(head))) return false;
+  static const unsigned char kStart[] = {0x6A, 0xFF, 0x68};
+  static const unsigned char kFsLoad[] = {0x64, 0xA1, 0x00, 0x00, 0x00, 0x00};
+  if (memcmp(head, kStart, sizeof(kStart)) != 0 || memcmp(head + 7, kFsLoad, sizeof(kFsLoad)) != 0) return false;
   __try {
     reinterpret_cast<GetIdNameFn>(fn)(&id, out);
     return true;
@@ -99,8 +142,18 @@ std::string readUid(const Offsets& o, uintptr_t challenge) {
   unsigned int id = 0;
   if (!readAt<unsigned int>(challenge + o.challengeUid, &id) || id == 0) return std::string();
 
+  // GetName returns a new string each call, allocated by the game and never
+  // freed here - at twenty reads a second that was megabytes an hour in a
+  // 32-bit process. The id only changes with the map, so the answer is kept.
+  static uintptr_t s_challenge = 0;
+  static unsigned int s_id = 0;
+  static uintptr_t s_fn = 0;
+  static std::string s_uid;
+  const uintptr_t fn = exeBase() + o.getIdName;
+  if (challenge == s_challenge && id == s_id && fn == s_fn && !s_uid.empty()) return s_uid;
+
   CFastString result{};
-  if (!callGetIdName(exeBase() + o.getIdName, id, &result)) return std::string();
+  if (!callGetIdName(fn, id, &result)) return std::string();
   if (result.size <= 0 || result.size > 256 || !plausible(reinterpret_cast<uintptr_t>(result.cstr))) {
     return std::string();
   }
@@ -108,6 +161,10 @@ std::string readUid(const Offsets& o, uintptr_t challenge) {
   std::string out(static_cast<size_t>(result.size), '\0');
   if (!readRaw(reinterpret_cast<uintptr_t>(result.cstr), &out[0], out.size())) return std::string();
   out.resize(strnlen(out.c_str(), out.size()));
+  s_challenge = challenge;
+  s_id = id;
+  s_fn = fn;
+  s_uid = out;
   return out;
 }
 
@@ -130,10 +187,11 @@ std::string readName(const Offsets& o, uintptr_t challenge) {
 
 // The published offsets, from Twinkie's TwinkTrackmania.cpp.
 //
-// `getIdName` carries the +0x200000 Twinkie applies with the comment "might be
-// modloader related" - kept verbatim because it is what is known to work, and
-// the second profile is the same table without it, so whichever is right for a
-// given build is found by `attach()` rather than guessed here.
+// `getIdName` is CMwId::GetName at RVA 0x5357D0 in the TMNF build 4d431494.
+// Twinkie writes it as 0x3357D0 + 0x200000 with the note "might be modloader
+// related"; it is not - the exe is never relocated, that is simply the
+// function's address. The "plain" profile that called 0x3357D0 jumped into the
+// middle of CGameCtnMediaBlockText::SetStyleColor, so it is gone.
 Offsets baseProfile(const char* name, uintptr_t idNameExtra) {
   Offsets o;
   o.name = name;
@@ -156,7 +214,6 @@ Offsets baseProfile(const char* name, uintptr_t idNameExtra) {
 void ensureDefaults() {
   if (!g_profiles.empty()) return;
   g_profiles.push_back(baseProfile("tmf-modloader", 0x200000));
-  g_profiles.push_back(baseProfile("tmf-plain", 0));
 }
 
 
@@ -269,8 +326,9 @@ uintptr_t g_appForScan = 0;
 void loadTimeChain() {
   if (g_timeChainLoaded) return;
   g_timeChainLoaded = true;
-  if (!config().timeChain.empty()) {
-    g_timeChain = scan::parse(config().timeChain);
+  const std::string savedChain = config().copy(config().timeChain);
+  if (!savedChain.empty()) {
+    g_timeChain = scan::parse(savedChain);
     if (!g_timeChain.hops.empty() || g_timeChain.delta) {
       log::line("game: calibrated clock chain from the ini: app -> %s", g_timeChain.text().c_str());
       return;
@@ -438,8 +496,8 @@ bool narrowCandidates(uintptr_t race) {
       }
       g_timeChain = *shortestChain;
       g_timeChainLoaded = true;
-      config().timeChain = shortestChain->text();
-      config().save();
+      const std::string text = shortestChain->text();
+      config().edit([&](Config& c) { c.timeChain = text; });
       log::line("game: clock learned and saved - app -> %s (no calibration needed again on this build)",
                 shortestChain->text().c_str());
     } else {
@@ -723,6 +781,7 @@ int g_lastLoggedCheckpoint = -2;
 int g_freezeValue = -1;          // clock reading when it stopped; -1 = running
 int g_confirmedFinishMs = 0;     // the last freeze proved to be a finish
 std::string g_confirmedUid;      // and the map it happened on
+std::string g_freezeUid;         // the map the clock stopped on
 
 void logFinishCandidates(int officialState) {
   static int s_last = -2;
@@ -751,8 +810,11 @@ void logFinishCandidates(int officialState) {
 const uintptr_t kPiRaceTime = 0x2B0;
 const uintptr_t kPiPrevRaceTime = 0x2A8;
 const uintptr_t kPiBestTime = 0x2B4;
-const uintptr_t kPiNbCompleted = 0x2C8;
-const uintptr_t kPiCurCheckpoint = 0x2D8;
+// From ModTMNF's reflected class layout, checked against the code that writes
+// them (SetCurrentCheckpoint writes +0x2E4). 0x2C8 was MinRespawns - hence
+// "completed 999".
+const uintptr_t kPiNbCompleted = 0x2CC;
+const uintptr_t kPiCurCheckpoint = 0x2E4;
 const uintptr_t kPiRaceState = 0x314;
 const uintptr_t kPiLapCpCount = 0x330;
 const uintptr_t kPiCpCount = 0x334;
@@ -802,6 +864,70 @@ void pushFinish(const std::string& uid, int ms, const char* how) {
 // Held for the whole of read() and by the calibration calls, which walk the
 // same globals and now run on a different thread from the reads.
 std::mutex g_readLock;
+
+/** Is `player` one of the players this race lists? */
+bool raceHasPlayer(uintptr_t race, uintptr_t player) {
+  int count = 0;
+  if (!readAt<int>(race + 0x24, &count) || count <= 0 || count > 256) return false;
+  const uintptr_t items = deref(race + 0x28);
+  if (!plausible(items)) return false;
+  for (int i = 0; i < count; i++) {
+    if (deref(items + 4 * static_cast<uintptr_t>(i)) == player) return true;
+  }
+  return false;
+}
+
+/**
+ * The player sitting at this machine, found the way Twinkie's dashboard finds
+ * its own car (after brokenphilip).
+ *
+ * `[race+0x330]` is the playing player's info when the game fills it in; on
+ * the 2026-10-16 build it reads 0 in a plain solo race, so that alone found
+ * nothing and every reading fell through to the race's player list. Entry 0 of
+ * that list is you offline, and on a server whoever the server listed first: a
+ * stranger's 4:38 on screen while the HUD said 0:24. When the field is empty
+ * the network's player infos are asked instead - `[app+0x12C]` then the buffer
+ * at +0x2FC, entry 0 - which is the local one on and off a server.
+ *
+ * Accepted only when the pointers close the loop the game keeps - info +0x238
+ * is its player, that player +0x1C is this same info - and that player is in
+ * this race. Measured live: the network entry, the list entry and the player's
+ * own pointer were one object. Then the usual sanity: a vtable inside the
+ * game's image, a race state the game can have, a clock in range. A countdown
+ * reads negative; that is the start line, not a fault.
+ */
+uintptr_t localPlayerInfo(uintptr_t app, uintptr_t race, int* raceTime) {
+  if (!plausible(race)) return 0;
+  uintptr_t pi = deref(race + 0x330);
+  const char* via = "local player (race+0x330)";
+  if (!plausible(pi) && plausible(app)) {
+    const uintptr_t net = deref(app + 0x12C);
+    int size = 0;
+    const uintptr_t items = plausible(net) ? deref(net + 0x2FC + 4) : 0;
+    if (plausible(items) && readAt<int>(net + 0x2FC, &size) && size > 0 && size <= 256) {
+      pi = deref(items);
+      via = "local player (network info 0)";
+    }
+  }
+  if (!plausible(pi)) return 0;
+  const uintptr_t player = deref(pi + 0x238);
+  if (!plausible(player) || deref(player + 0x1C) != pi || !raceHasPlayer(race, player)) return 0;
+  const uintptr_t vtable = deref(pi);
+  const uintptr_t base = exeBase();
+  if (vtable < base || vtable >= base + 0x2000000) return 0;
+  int state = -1, time = 0;
+  if (!readAt<int>(pi + kPiRaceState, &state) || state < 0 || state > 3) return 0;
+  if (!readAt<int>(pi + kPiRaceTime, &time) || time < -15000 || time > kMaxRaceMs) return 0;
+  *raceTime = time < 0 ? 0 : time;
+  g_playerInfoVia = via;
+  return pi;
+}
+
+/** How many players the race lists - more than one means a server. */
+int racePlayerCount(uintptr_t race) {
+  int count = 0;
+  return plausible(race) && readAt<int>(race + 0x24, &count) && count >= 0 && count < 1000 ? count : 0;
+}
 
 /** Only an object whose race clock is the one just read counts as the player's. */
 uintptr_t verifiedPlayerInfo(uintptr_t app, uintptr_t race, uintptr_t clockAddress) {
@@ -1090,8 +1216,18 @@ Snapshot read() {
   //    first and, when it answers, nothing below runs: it is the only reading
   //    here that was ever verified against what the game displayed.
   noteShort("");
-  const int calibrated = calibratedTime(app);
-  const uintptr_t playerInfo = calibrated >= 0 ? verifiedPlayerInfo(app, race, g_timeAddress) : 0;
+  int localTime = -1;
+  const uintptr_t local = localPlayerInfo(app, race, &localTime);
+  if (local) {
+    g_timeAddress = local + kPiRaceTime;
+  } else if (racePlayerCount(race) > 1) {
+    // On a server with no local player to read - spectating, between rounds -
+    // every other path below would read somebody else. Better nothing.
+    noteShort("several players on the server and none of them is this machine's");
+    return snap;
+  }
+  const int calibrated = local ? localTime : calibratedTime(app);
+  const uintptr_t playerInfo = local ? local : calibrated >= 0 ? verifiedPlayerInfo(app, race, g_timeAddress) : 0;
   snap.gameFinishMs = watchFinish(playerInfo, snap.uid);
   snap.playerInfoVerified = playerInfo != 0;
   snap.finishProbe = g_finishProbe;
@@ -1140,6 +1276,8 @@ Snapshot read() {
     // for TrackMania to have written a replay, which it does not do for a
     // pause, and the bridge has nothing to upload without one either.
     const bool frozen = g_lastClockMove > 0 && now - g_lastClockMove > 600;
+    // A stop that is still pending when the map changes belongs to the old map.
+    if (g_freezeValue >= 0 && snap.uid != g_freezeUid) g_freezeValue = -1;
     snap.clockMoving = !frozen && calibrated > 100;
 
     // Is anybody actually driving? The clock alone cannot say: TrackMania
@@ -1161,11 +1299,17 @@ Snapshot read() {
     // Watch what the clock does after it stops, and say which of the two it
     // was. See the note on g_freezeValue.
     if (frozen) {
-      if (g_freezeValue < 0) g_freezeValue = calibrated;
+      if (g_freezeValue < 0) {
+        g_freezeValue = calibrated;
+        // Taken now, not when the restart confirms it: by then the race object
+        // may have been reused for the next map, and the finish would be
+        // credited to a map nobody finished.
+        g_freezeUid = snap.uid;
+      }
     } else if (g_freezeValue >= 0) {
       if (calibrated < g_freezeValue) {
         g_confirmedFinishMs = g_freezeValue;
-        g_confirmedUid = snap.uid;
+        g_confirmedUid = g_freezeUid;
         log::line("game: that stop at %d ms was a finish - the clock restarted at %d", g_freezeValue, calibrated);
       } else {
         log::line("game: that stop at %d ms was a pause - the clock carried on to %d", g_freezeValue, calibrated);
@@ -1175,6 +1319,7 @@ Snapshot read() {
     // Only for the map it happened on: moving to another map must not carry a
     // finish across to it.
     snap.confirmedFinishMs = (!g_confirmedUid.empty() && g_confirmedUid == snap.uid) ? g_confirmedFinishMs : 0;
+    snap.stoppedMsAgo = g_lastClockMove > 0 ? static_cast<int>(now - g_lastClockMove) : -1;
 
     if (playerInfo && resolvedState >= 0 && resolvedState <= 2) {
       // The game's own word, from the object the clock lives in. Tested
@@ -1328,9 +1473,11 @@ namespace {
 void adoptChain(const scan::Chain& chain, const char* how) {
   g_timeChain = chain;
   g_timeChainLoaded = true;
-  config().timeChain = chain.text();
-  config().timeAddress.clear();
-  config().save();
+  const std::string text = chain.text();
+  config().edit([&](Config& c) {
+    c.timeChain = text;
+    c.timeAddress.clear();
+  });
 
   g_calibCandidates.clear();
   g_calibNote = "Calibrated: app -> " + chain.text();
@@ -1426,6 +1573,11 @@ bool calibrateByTime(int milliseconds) {
 }
 
 CalibrationState calibration() {
+  // Under the read lock, like everything else that touches the clock search:
+  // the candidates and the chain are rebuilt by read() and by a calibration
+  // the worker runs, and this used to walk them from the render thread while
+  // either of those was reallocating them.
+  std::lock_guard<std::mutex> readGuard(g_readLock);
   CalibrationState out;
   loadTimeChain();
   out.haveChain = !g_timeChain.hops.empty() || g_timeChain.delta != 0;
@@ -1446,8 +1598,7 @@ void forgetCalibration() {
   g_timeChainLoaded = true;
   g_calibCandidates.clear();
   g_calibNote.clear();
-  config().timeChain.clear();
-  config().save();
+  config().edit([](Config& c) { c.timeChain.clear(); });
   log::line("game: calibration cleared");
 }
 

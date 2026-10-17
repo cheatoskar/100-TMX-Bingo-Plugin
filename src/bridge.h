@@ -29,6 +29,9 @@ void start();
 /** Stop and close the socket. Safe to call when not running. */
 void stop();
 
+/** Process exit: let go of the listener without waiting for it. */
+void detach();
+
 /** Turn the setting on or off and start or stop accordingly. */
 void setEnabled(bool on);
 
@@ -75,7 +78,11 @@ void refusePairing();
  * record on that map, so a false answer here means "no proof", not "no
  * finish". The button in the panel still works.
  */
-bool sawFreshReplay(const std::string& uid);
+/**
+ * This map's replay, its UID confirmed inside the file, written no earlier than
+ * `notBefore` (a FILETIME, 100 ns ticks since 1601 - 0 for any time).
+ */
+bool sawFreshReplay(const std::string& uid, unsigned long long notBefore);
 
 /**
  * Offer the replay just driven, if one can be found.

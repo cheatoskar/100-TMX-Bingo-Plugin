@@ -115,6 +115,24 @@ std::string randomKey() {
 
 // ------------------------------------------------------- finding a replay
 
+// Paths are kept as UTF-8 here and widened at the file system, never handed to
+// the ANSI functions: those read UTF-8 bytes in the system code page, and a
+// Documents folder under a user name with an umlaut was simply never found.
+std::wstring widen(const std::string& text) {
+  if (text.empty()) return std::wstring();
+  const int size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+  std::wstring out(static_cast<size_t>(size > 0 ? size - 1 : 0), L'\0');
+  if (size > 1) MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &out[0], size);
+  return out;
+}
+
+std::string narrow(const wchar_t* text) {
+  const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+  std::string out(static_cast<size_t>(size > 0 ? size - 1 : 0), '\0');
+  if (size > 1) WideCharToMultiByte(CP_UTF8, 0, text, -1, &out[0], size, nullptr, nullptr);
+  return out;
+}
+
 std::string documentsPath() {
   wchar_t buffer[MAX_PATH] = {0};
   if (FAILED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, buffer))) return "";
@@ -139,8 +157,11 @@ std::string documentsPath() {
  */
 std::vector<std::string> autosaveDirs() {
   std::vector<std::string> out;
-  if (!config().replayDir.empty()) {
-    out.push_back(config().replayDir);
+  // A copy under the config's lock: the settings window edits this string on
+  // the render thread while this runs on the bridge's.
+  const std::string custom = config().copy(config().replayDir);
+  if (!custom.empty()) {
+    out.push_back(custom);
     return out;
   }
   const std::string docs = documentsPath();
@@ -154,7 +175,7 @@ std::vector<std::string> autosaveDirs() {
 /** Does this file carry that map's UID? The UID sits in the header as plain text. */
 bool fileMentions(const std::string& path, const std::string& uid) {
   if (uid.empty()) return false;
-  std::ifstream in(path, std::ios::binary);
+  std::ifstream in(widen(path).c_str(), std::ios::binary);
   if (!in) return false;
   // The header is the first few kilobytes; a megabyte is far past generous and
   // still nothing next to reading the whole body.
@@ -182,7 +203,7 @@ struct Found {
  * over a merely newer one - which is what stops the wrong replay being
  * uploaded under somebody's name after an alt-tab.
  */
-bool findAutosave(const std::string& uid, Found& out) {
+bool findAutosave(const std::string& uid, Found& out, unsigned long long notBefore = 0) {
   FILETIME now{};
   GetSystemTimeAsFileTime(&now);
   const unsigned long long nowTicks =
@@ -196,11 +217,11 @@ bool findAutosave(const std::string& uid, Found& out) {
   for (const std::string& dir : autosaveDirs()) {
     searched += (searched.empty() ? "" : ", ") + dir;
 
-    WIN32_FIND_DATAA find{};
+    WIN32_FIND_DATAW find{};
     // Case-insensitive on Windows, which matters: the game writes ".Replay.gbx"
     // with a small g.
     const std::string pattern = dir + "\\*.Replay.Gbx";
-    HANDLE handle = FindFirstFileA(pattern.c_str(), &find);
+    HANDLE handle = FindFirstFileW(widen(pattern).c_str(), &find);
     if (handle == INVALID_HANDLE_VALUE) continue;
 
     do {
@@ -209,8 +230,10 @@ bool findAutosave(const std::string& uid, Found& out) {
           (static_cast<unsigned long long>(find.ftLastWriteTime.dwHighDateTime) << 32) |
           find.ftLastWriteTime.dwLowDateTime;
       if (written + window < nowTicks) continue;
+      if (written < notBefore) continue;
 
-      const std::string path = dir + "\\" + find.cFileName;
+      const std::string fileName = narrow(find.cFileName);
+      const std::string path = dir + "\\" + fileName;
       const bool verified = fileMentions(path, uid);
       // A confirmed file always beats an unconfirmed one, however new - and
       // across folders that is the whole point: two games can both have
@@ -221,14 +244,14 @@ bool findAutosave(const std::string& uid, Found& out) {
       best = written;
       bestVerified = verified;
       out.path = path;
-      out.name = find.cFileName;
+      out.name = fileName;
       out.verified = verified;
-    } while (FindNextFileA(handle, &find));
+    } while (FindNextFileW(handle, &find));
     FindClose(handle);
   }
 
   if (best == 0) {
-    log::once("autosave", "bridge: nothing written in the last %ds under %s", kAutosaveAgeSeconds,
+    log::once("autosave-scan", "bridge: nothing written in the last %ds under %s", kAutosaveAgeSeconds,
               searched.empty() ? "(no replay folder found)" : searched.c_str());
   }
   return best != 0;
@@ -278,7 +301,7 @@ std::string describe(const Pending& p) {
 }
 
 std::string readFile(const std::string& path) {
-  std::ifstream in(path, std::ios::binary);
+  std::ifstream in(widen(path).c_str(), std::ios::binary);
   if (!in) return "";
   return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
@@ -308,7 +331,8 @@ std::string handleRequest(const std::string& method,
     if (g_pairApproved.exchange(false)) {
       g_pairAsked = false;
       log::line("bridge: handed the key to a browser that was allowed in");
-      return jsonResponse(200, std::string("{\"ok\":true,\"key\":") + Json::quote(config().bridgeKey) + "}");
+      return jsonResponse(200, std::string("{\"ok\":true,\"key\":") + Json::quote(config().copy(config().bridgeKey)) +
+                                   "}");
     }
     const bool fresh = !g_pairAsked.exchange(true);
     g_pairAskedAt = nowSeconds();
@@ -319,7 +343,7 @@ std::string handleRequest(const std::string& method,
     return jsonResponse(200, "{\"ok\":false,\"status\":\"pending\"}");
   }
 
-  if (key.empty() || key != config().bridgeKey) {
+  if (key.empty() || key != config().copy(config().bridgeKey)) {
     return jsonResponse(401, "{\"ok\":false,\"error\":\"pair this browser with the key the mod shows\"}");
   }
   g_paired = true;
@@ -439,6 +463,7 @@ void serve(SOCKET client) {
 
     // The two headers this speaks: the key, and how much body to wait for.
     std::string key;
+    std::string host;
     size_t contentLength = 0;
     size_t at = head.find("\r\n");
     while (at != std::string::npos) {
@@ -451,6 +476,7 @@ void serve(SOCKET client) {
         while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.erase(value.begin());
         for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
         if (name == "x-tmx-key") key = value;
+        else if (name == "host") host = value;
         else if (name == "content-length") contentLength = static_cast<size_t>(atoi(value.c_str()));
       }
       at = end;
@@ -466,7 +492,20 @@ void serve(SOCKET client) {
     const std::string path = mark == std::string::npos ? target : target.substr(0, mark);
     const std::string query = mark == std::string::npos ? "" : target.substr(mark + 1);
 
-    const std::string answer = handleRequest(method, path, query, key, body);
+    // Loopback is not the same as "only this machine's programs". A web page
+    // can rebind its own domain to 127.0.0.1 and talk to this socket from a
+    // browser tab - and could then read the answers, the pairing key among
+    // them, because to the browser it is the page's own origin. Such a request
+    // still carries the page's domain in Host, which is what gives it away.
+    // (Origin is not checked: whether the extension asks from its background
+    // or from a content script on a TMX page is its business, and a plain page
+    // that is not rebound cannot read anything we answer.)
+    const bool localHost = host.rfind("127.0.0.1:", 0) == 0 || host.rfind("localhost:", 0) == 0 ||
+                           host == "127.0.0.1" || host == "localhost";
+    const std::string answer =
+        localHost ? handleRequest(method, path, query, key, body)
+                  : jsonResponse(403, "{\"ok\":false,\"error\":\"only the extension may talk to the mod\"}");
+    if (!localHost) log::once("bridge-refused", "bridge: refused a request for host '%s'", host.c_str());
     size_t sent = 0;
     while (sent < answer.size()) {
       const int wrote = send(client, answer.data() + sent, static_cast<int>(answer.size() - sent), 0);
@@ -543,16 +582,23 @@ void listen_loop() {
 
 void start() {
   if (!config().bridge || g_running) return;
-  if (config().bridgeKey.empty()) {
-    config().bridgeKey = randomKey();
-    config().save();
+  if (config().copy(config().bridgeKey).empty()) {
+    config().edit([](Config& c) { c.bridgeKey = randomKey(); });
   }
+  // A thread from an earlier start that gave up - no free port, winsock would
+  // not start - has ended, but it is still joinable, and assigning a new
+  // thread over a joinable one is std::terminate: the whole game, gone, for
+  // switching the bridge off and on again.
+  if (g_thread.joinable()) g_thread.join();
   g_running = true;
   g_thread = std::thread(listen_loop);
 }
 
 void stop() {
-  if (!g_running) return;
+  if (!g_running) {
+    if (g_thread.joinable()) g_thread.join();  // ended by itself; see start()
+    return;
+  }
   g_running = false;
   // Closing the listening socket is what wakes `accept`; there is no portable
   // way to interrupt it otherwise, and a thread parked in accept would keep
@@ -563,9 +609,17 @@ void stop() {
   g_queue.clear();
 }
 
+void detach() {
+  g_running = false;
+  if (g_listener != INVALID_SOCKET) closesocket(g_listener);
+  // A joinable std::thread still standing when the DLL's statics are torn down
+  // calls std::terminate - a crash box every time the game closed with the
+  // bridge on. Process exit is the one place not to wait for it.
+  if (g_thread.joinable()) g_thread.detach();
+}
+
 void setEnabled(bool on) {
-  config().bridge = on;
-  config().save();
+  config().edit([on](Config& c) { c.bridge = on; });
   if (on) start();
   else stop();
 }
@@ -591,9 +645,8 @@ Status status() {
 }
 
 void approvePairing() {
-  if (config().bridgeKey.empty()) {
-    config().bridgeKey = randomKey();
-    config().save();
+  if (config().copy(config().bridgeKey).empty()) {
+    config().edit([](Config& c) { c.bridgeKey = randomKey(); });
   }
   g_pairApproved = true;
   log::line("bridge: pairing allowed - waiting for the browser to collect the key");
@@ -606,9 +659,13 @@ void refusePairing() {
   log::line("bridge: pairing refused");
 }
 
-bool sawFreshReplay(const std::string& uid) {
+bool sawFreshReplay(const std::string& uid, unsigned long long notBefore) {
   Found found;
-  return findAutosave(uid, found);
+  // Proof means *this* map's replay, written *since this run stopped*. Any
+  // autosave from the last ninety seconds used to do: set a record, restart,
+  // press Escape thirty seconds in, and the record's replay "proved" the pause
+  // a finish - which put thirty seconds nobody drove on a bingo tile.
+  return findAutosave(uid, found, notBefore) && found.verified;
 }
 
 bool offerFinish(const std::string& site, int trackId, const std::string& mapName, const std::string& uid,
@@ -617,7 +674,7 @@ bool offerFinish(const std::string& site, int trackId, const std::string& mapNam
 
   Found found;
   if (!findAutosave(uid, found)) {
-    log::once("autosave", "bridge: no autosave written in the last %ds - is autosaving on?", kAutosaveAgeSeconds);
+    log::once("autosave-offer", "bridge: no autosave written in the last %ds - is autosaving on?", kAutosaveAgeSeconds);
     return false;
   }
 

@@ -63,6 +63,7 @@ add_library(tmx_mod SHARED
   src/scan.cpp
   src/textures.cpp
   src/worker.cpp
+  res/tmx.rc
 
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -130,3 +131,33 @@ target_compile_options(tmx_installer PRIVATE /W4 /EHsc)
 set_target_properties(tmx_installer PROPERTIES
   OUTPUT_NAME "100TMX-Installer"
 )
+
+# ---------------------------------------------------------------------------
+# The previewer: the real overlay in a window of its own, with made-up state,
+# saved as a PNG. Off by default and never shipped - it is how a layout change
+# is looked at without restarting TrackMania. See tools/preview/main.cpp.
+#
+#   cmake -S . -B build -A Win32 -DTMX_BUILD_PREVIEW=ON
+#   cmake --build build --config Release --target tmx_preview
+#   build/Release/tmx_preview.exe bingo bingo.png
+# ---------------------------------------------------------------------------
+option(TMX_BUILD_PREVIEW "Build the overlay previewer (tools/preview)" OFF)
+if(TMX_BUILD_PREVIEW)
+  add_executable(tmx_preview
+    tools/preview/main.cpp
+    tools/preview/stubs.cpp
+    src/overlay.cpp
+    src/textures.cpp
+    src/http.cpp
+    res/tmx.rc
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx9.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
+  )
+  target_include_directories(tmx_preview PRIVATE src ${imgui_SOURCE_DIR} ${stb_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}")
+  target_compile_definitions(tmx_preview PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+  target_compile_options(tmx_preview PRIVATE /W4 /EHsc /permissive-)
+endif()

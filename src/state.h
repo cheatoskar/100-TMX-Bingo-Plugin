@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "game.h"
+
 namespace tmx {
 
 // What the site says about the map currently loaded.
@@ -29,6 +31,8 @@ struct MapStatus {
   std::string url;
   std::string playUrl;
   std::string uploadUrl;
+  /** TMX's screenshot of the map. */
+  std::string imageUrl;
   int open = -1;             // 1 open, 0 finished, -1 not in the catalogue
   int excluded = -1;
   int score = 0;
@@ -39,6 +43,32 @@ struct MapStatus {
   /** Set when TMX itself was asked and said somebody has just finished this map. */
   bool justFinished = false;
   std::string justFinishedBy;
+};
+
+/** One line of the exchange's own leaderboard for a map. */
+struct TopRow {
+  int position = 0;  // 1-based
+  std::string name;
+  int timeMs = 0;
+  std::string at;    // when it was driven, "2025-09-16"
+};
+
+/** The best ten on TMX for the map you are on, straight from the exchange. */
+struct TopTen {
+  std::string key;   // "tmnf:2233" - which map these rows belong to
+  std::vector<TopRow> rows;
+  bool loading = false;
+  std::string error;
+  double fetchedAt = 0;
+};
+
+/** The newest release on GitHub, against the one running. */
+struct UpdateInfo {
+  enum class Status { Unknown, Checking, UpToDate, Available, Failed };
+  Status status = Status::Unknown;
+  std::string version;  // "1.1.0", without the tag's v
+  std::string url;      // the release page: the zip and the installer are there
+  std::string title;    // the first heading of its notes
 };
 
 struct BoardSummary {
@@ -259,6 +289,8 @@ struct State {
   int raceTimeMs = -1;
   /** Which dereference the walk to the player died on. See game::Snapshot. */
   int raceStep = 0;
+  /** Where the race clock comes from on this build - see game::calibration(). */
+  game::CalibrationState calib;
 
   // ---------------------------------------------------------- the account
   bool linked = false;
@@ -274,7 +306,17 @@ struct State {
   std::vector<BoardHit> hits;
   std::vector<AlsoHere> alsoHere;
   std::vector<BoardSummary> boards;
+  /**
+   * The board picked in the settings, as the worker last stored it.
+   *
+   * The panels read this rather than `config().board`: that string is assigned
+   * on the worker thread, and copying it on the render thread at the same
+   * moment is a read of freed memory.
+   */
+  std::string selectedBoard;
   BoardView board;
+  TopTen top;
+  UpdateInfo update;
   std::string lastCall;     // "reported the map", "checked tile 7", …
   std::string lastError;
 
@@ -290,7 +332,8 @@ struct Command {
     // Teaching this build where its race clock lives. Both walk the game's
     // object graph, which takes long enough to matter - so they are commands
     // for the worker rather than something a button does on the render thread.
-    CalibrateAddress, CalibrateTime, ForgetCalibration
+    CalibrateAddress, CalibrateTime, ForgetCalibration,
+    CheckUpdate
   };
   Kind kind = Kind::RefreshBoards;
   std::string text;   // board id, or a play URL

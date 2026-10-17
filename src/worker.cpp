@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -19,6 +20,7 @@
 #include "log.h"
 #include "state.h"
 #include "textures.h"
+#include "tmx_version.h"
 
 namespace tmx {
 
@@ -70,9 +72,80 @@ void note(const std::string& what, const std::string& error = "") {
 
 std::string url(const std::string& path) { return config().baseUrl + path; }
 
+/**
+ * Whether a URL from the site may be handed to the shell.
+ *
+ * ShellExecute opens whatever it is given - a file, a program, any registered
+ * protocol - so a link that came over the network is checked before it gets
+ * there, the way `play()` already checks for `tmtp:`. https everywhere, and
+ * the configured site itself for a dev server on plain http.
+ */
+bool safeToOpen(const std::string& link) {
+  if (link.rfind("https://", 0) == 0) return true;
+  const std::string& base = config().baseUrl;
+  return !base.empty() && link.rfind(base + "/", 0) == 0;
+}
+
+// The time now as a FILETIME number, the clock a replay file is stamped with.
+unsigned long long fileTimeNow() {
+  FILETIME now{};
+  GetSystemTimeAsFileTime(&now);
+  return (static_cast<unsigned long long>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+}
+
+/**
+ * The token was revoked on the website: forget it here.
+ *
+ * Only the map report used to notice. The board polls kept going every twenty
+ * seconds with a token the site had already thrown away, for the rest of the
+ * session, and the panel kept saying the machine was connected.
+ */
+bool revoked(const Response& res) {
+  if (!res.ok || res.status != 401) return false;
+  config().edit([](Config& c) { c.token.clear(); });
+  shared().write([](State& s) {
+    s.linked = false;
+    s.boards.clear();
+    s.board = BoardView();
+    s.hits.clear();
+  });
+  note("this machine was disconnected on the website");
+  return true;
+}
+
 // ---------------------------------------------------------------- the device flow
 
+/**
+ * A link in progress.
+ *
+ * Polled from the loop rather than waited on. The wait used to sit inside the
+ * loop for up to ten minutes, so while somebody typed the code into the
+ * website the game was not read, nothing was reported, every button queued up
+ * behind it - and Cancel, being one of those buttons, could never arrive.
+ */
+struct Link {
+  bool active = false;
+  std::string pollBody;
+  double deadline = 0;
+  double interval = 5;
+  double nextPoll = 0;
+};
+Link g_link;
+
+void endLink(const std::string& error) {
+  g_link.active = false;
+  shared().write([&](State& s) {
+    s.linking = false;
+    s.userCode.clear();
+    if (!error.empty()) s.linkError = error;
+  });
+}
+
 void startLink() {
+  // A second Connect - pressed twice, or queued while the first was running -
+  // used to start a second link and open a second browser tab.
+  if (!config().token.empty() || g_link.active) return;
+
   char host[64]{};
   DWORD size = sizeof(host);
   if (!GetComputerNameA(host, &size)) strcpy_s(host, sizeof(host), "TrackMania PC");
@@ -80,10 +153,7 @@ void startLink() {
   std::string body = "{\"label\":" + Json::quote(host) + "}";
   Response res = post(url("/api/game/device"), body);
   if (!res.ok || res.status != 200) {
-    shared().write([&](State& s) {
-      s.linking = false;
-      s.linkError = res.error.empty() ? "the site refused the request" : res.error;
-    });
+    endLink(res.error.empty() ? "the site refused the request" : res.error);
     return;
   }
 
@@ -91,13 +161,11 @@ void startLink() {
   std::string deviceCode = data.str("deviceCode");
   std::string userCode = data.str("userCode");
   std::string verify = data.str("verifyUrl", config().baseUrl + "/link");
-  int interval = data.integer("interval", 5);
-  int expiresIn = data.integer("expiresIn", 600);
+  // Bounded either way: an interval of 0 was a request every 250 ms.
+  const int interval = std::clamp(data.integer("interval", 5), 2, 60);
+  const int expiresIn = std::clamp(data.integer("expiresIn", 600), 30, 3600);
   if (deviceCode.empty() || userCode.empty()) {
-    shared().write([&](State& s) {
-      s.linking = false;
-      s.linkError = "the site sent no code";
-    });
+    endLink("the site sent no code");
     return;
   }
 
@@ -110,58 +178,62 @@ void startLink() {
 
   // The browser is opened for them: the code is useless without the page, and
   // typing a URL with a fullscreen game in the way is a chore.
-  ShellExecuteA(nullptr, "open", (verify + "?code=" + userCode).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-
-  const double deadline = nowSeconds() + expiresIn;
-  std::string pollBody = "{\"deviceCode\":" + Json::quote(deviceCode) + "}";
-
-  while (g_running && nowSeconds() < deadline) {
-    // A cancel from the settings window has to be noticed between polls, which
-    // is why this loop watches the flag rather than sleeping the whole interval.
-    for (int i = 0; i < interval * 4 && g_running; i++) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(250));
-      State snapshot = shared().read();
-      if (!snapshot.linking) return;
-    }
-
-    Response poll = post(url("/api/game/device/poll"), pollBody);
-    if (!poll.ok) continue;
-
-    Json answer = Json::parse(poll.body);
-    std::string status = answer.str("status");
-    if (status == "approved") {
-      std::string token = answer.str("token");
-      if (token.empty()) continue;
-      config().token = token;
-      config().save();
-      shared().write([&](State& s) {
-        s.linking = false;
-        s.linked = true;
-        s.userCode.clear();
-        s.linkError.clear();
-        // Asked once, here, rather than left as a setting nobody finds: the
-        // player just deliberately connected, which is the moment the question
-        // makes sense. Still a question - connecting is not consent to publish.
-        // Shown once after linking whichever way the switch is set. It used
-        // to fire only when sharing was off, which made sense while off was
-        // the default - now that it is on, never mentioning it would mean the
-        // one thing that sends anything off the machine turning itself on
-        // quietly. So it became a notice with an off switch rather than a
-        // question with an on switch.
-        s.askSharing = true;
-      });
-      toast("Connected. Check what is being shared.");
-      return;
-    }
-    if (status == "expired") break;
+  if (safeToOpen(verify)) {
+    ShellExecuteA(nullptr, "open", (verify + "?code=" + userCode).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   }
 
+  const double now = nowSeconds();
+  g_link.active = true;
+  g_link.pollBody = "{\"deviceCode\":" + Json::quote(deviceCode) + "}";
+  g_link.deadline = now + expiresIn;
+  g_link.interval = interval;
+  g_link.nextPoll = now + interval;
+}
+
+void loadBoards();
+
+void pollLink(double now) {
+  if (!g_link.active) return;
+
+  bool cancelled = false;
+  shared().write([&](State& s) { cancelled = !s.linking; });
+  if (cancelled) {
+    g_link.active = false;
+    return;
+  }
+  if (now > g_link.deadline) {
+    endLink("the code expired - press Connect again");
+    return;
+  }
+  if (now < g_link.nextPoll) return;
+  g_link.nextPoll = now + g_link.interval;
+
+  Response poll = post(url("/api/game/device/poll"), g_link.pollBody);
+  if (!poll.ok) return;
+
+  Json answer = Json::parse(poll.body);
+  const std::string status = answer.str("status");
+  if (status == "expired") {
+    endLink("the code expired - press Connect again");
+    return;
+  }
+  if (status != "approved") return;
+
+  const std::string token = answer.str("token");
+  if (token.empty()) return;
+  g_link.active = false;
+  config().edit([&](Config& c) { c.token = token; });
   shared().write([&](State& s) {
-    if (s.linking) {
-      s.linking = false;
-      s.linkError = "the code expired - press Connect again";
-    }
+    s.linking = false;
+    s.linked = true;
+    s.userCode.clear();
+    s.linkError.clear();
+    // Shown once after linking whichever way the switch is set: the one thing
+    // that sends anything off the machine is told, not discovered.
+    s.askSharing = true;
   });
+  toast("Connected. Check what is being shared.");
+  loadBoards();
 }
 
 // ------------------------------------------------------------------- the site
@@ -175,6 +247,149 @@ unsigned int parseColor(const std::string& hex) {
   const unsigned int g = (value >> 8) & 0xFF;
   const unsigned int b = value & 0xFF;
   return 0xFF000000u | (b << 16) | (g << 8) | r;  // ImGui packs ABGR
+}
+
+/**
+ * The exchange's own leaderboard for the map you are on.
+ *
+ * Asked of TMX directly, not through the site: it is TMX's number, and the
+ * site has nothing to add to it. One request per map, then again every few
+ * minutes while you stay - so a time somebody uploads while you grind shows
+ * up without hammering an exchange that is not ours. Only the exchange hosts
+ * are asked; the map's address comes from the site, and a URL off the network
+ * is not a place to send requests to unchecked.
+ */
+std::string exchangeHost(const std::string& mapUrl) {
+  const std::string scheme = "https://";
+  if (mapUrl.rfind(scheme, 0) != 0) return std::string();
+  const size_t slash = mapUrl.find('/', scheme.size());
+  const std::string host = mapUrl.substr(scheme.size(), slash == std::string::npos ? std::string::npos : slash - scheme.size());
+  auto endsWith = [&](const std::string& tail) {
+    return host.size() >= tail.size() && host.compare(host.size() - tail.size(), tail.size(), tail) == 0;
+  };
+  if (host.find_first_of(":@") != std::string::npos) return std::string();
+  return endsWith(".exchange") || endsWith(".tm-exchange.com") ? host : std::string();
+}
+
+// Where releases are cut. The tag is the version (v1.1.0), set by CI.
+const char* kRepository = "cheatoskar/100-TMX-Bingo-Plugin";
+
+/** "1.0.10" > "1.0.9"; a pre-release (1.1.0-rc.1) is older than its release. */
+bool newerVersion(const std::string& version, const std::string& than) {
+  const char* a = version.c_str();
+  const char* b = than.c_str();
+  for (int part = 0; part < 4; part++) {
+    char* endA = nullptr;
+    char* endB = nullptr;
+    const unsigned long x = strtoul(a, &endA, 10), y = strtoul(b, &endB, 10);
+    if (x != y) return x > y;
+    a = *endA == '.' ? endA + 1 : endA;
+    b = *endB == '.' ? endB + 1 : endB;
+    if (*a < '0' || *a > '9') a = "0";
+    if (*b < '0' || *b > '9') b = "0";
+  }
+  const bool preA = version.find('-') != std::string::npos, preB = than.find('-') != std::string::npos;
+  return !preA && preB;
+}
+
+/**
+ * Is there a newer release than this build?
+ *
+ * One request to GitHub's releases/latest, which skips drafts and
+ * pre-releases. Nothing is downloaded or installed: an update is the release
+ * page, opened when the player asks for it. A DLL replacing itself inside a
+ * running game, fetched by the game, is a much bigger promise than this mod
+ * needs to make.
+ */
+void checkUpdate() {
+  shared().write([](State& s) { s.update.status = UpdateInfo::Status::Checking; });
+  const Response res =
+      request("GET", std::string("https://api.github.com/repos/") + kRepository + "/releases/latest", "", "", true, 5000);
+  const Json data = res.ok && res.status == 200 ? Json::parse(res.body) : Json();
+  const std::string tag = data.str("tag_name");
+  UpdateInfo info;
+  if (tag.empty()) {
+    info.status = UpdateInfo::Status::Failed;
+  } else {
+    info.version = tag[0] == 'v' || tag[0] == 'V' ? tag.substr(1) : tag;
+    const std::string page = data.str("html_url");
+    info.url = page.rfind("https://github.com/", 0) == 0 ? page
+                                                          : std::string("https://github.com/") + kRepository + "/releases";
+    // The notes open with "## 100% TMX + Bingo 1.1.0 - what it is about";
+    // that line is the summary. The rest is Markdown for a web page.
+    const std::string body = data.str("body");
+    const size_t start = body.find_first_not_of("#\r\n ");
+    if (start != std::string::npos) info.title = body.substr(start, body.find_first_of("\r\n", start) - start);
+    info.status = newerVersion(info.version, TMX_VERSION_A) ? UpdateInfo::Status::Available
+                                                            : UpdateInfo::Status::UpToDate;
+  }
+  log::line("update: %s (latest release %s, this is %s)",
+            info.status == UpdateInfo::Status::Available  ? "a newer version is out"
+            : info.status == UpdateInfo::Status::UpToDate ? "up to date"
+                                                          : "check failed",
+            info.version.empty() ? "unknown" : info.version.c_str(), TMX_VERSION_A);
+  shared().write([&](State& s) { s.update = info; });
+}
+
+void refreshTop(double now) {
+  static std::string s_key;
+  static double s_last = 0;
+  std::string site, mapUrl;
+  int trackId = 0;
+  shared().write([&](State& s) {  // only reads; write() is the lock without a full copy
+    site = s.map.site;
+    trackId = s.map.trackId;
+    mapUrl = s.map.url;
+  });
+  const std::string key = trackId > 0 ? site + ":" + std::to_string(trackId) : std::string();
+  if (key.empty()) {
+    if (!s_key.empty()) {
+      s_key.clear();
+      shared().write([](State& s) { s.top = TopTen(); });
+    }
+    return;
+  }
+  const bool changed = key != s_key;
+  if (!changed && now - s_last < 180.0) return;
+  s_key = key;
+  s_last = now;
+  const std::string host = exchangeHost(mapUrl);
+  if (host.empty()) return;
+  if (changed) {
+    shared().write([&](State& s) {
+      s.top = TopTen();
+      s.top.key = key;
+      s.top.loading = true;
+    });
+  }
+
+  const Response res = request("GET",
+                               "https://" + host + "/api/replays?trackid=" + std::to_string(trackId) +
+                                   "&best=1&count=10&fields=ReplayTime,Position,ReplayAt,User.Name",
+                               "", "", true, 5000);
+  TopTen top;
+  top.key = key;
+  top.fetchedAt = now;
+  const Json data = res.ok && res.status == 200 ? Json::parse(res.body) : Json();
+  const Json* results = data.child("Results");
+  if (!results || results->type != Json::Type::Array) {
+    top.error = !res.ok ? "TMX could not be reached" : "TMX answered " + std::to_string(res.status);
+  } else {
+    for (const Json& r : results->array) {
+      TopRow row;
+      row.position = r.integer("Position") + 1;
+      row.timeMs = r.integer("ReplayTime");
+      row.at = r.str("ReplayAt").substr(0, 10);
+      if (const Json* user = r.child("User")) row.name = user->str("Name");
+      top.rows.push_back(std::move(row));
+      if (top.rows.size() >= 10) break;
+    }
+  }
+  if (!top.error.empty()) log::line("top ten for %s: %s", key.c_str(), top.error.c_str());
+  shared().write([&](State& s) {
+    // The map may have changed while TMX was answering.
+    if (s.map.trackId == trackId && s.map.site == site) s.top = std::move(top);
+  });
 }
 
 void applyMapAnswer(const Json& data, const std::string& uid) {
@@ -197,6 +412,12 @@ void applyMapAnswer(const Json& data, const std::string& uid) {
     map.finishedBy = m->str("finishedBy");
     map.finishedAt = m->str("finishedAt");
     map.known = m->flag("known");
+    // The site sends the picture with a board's tiles but not (yet) with the
+    // map you are on; the exchange's own page is one path away from it, so a
+    // site that leaves it out still gets a picture rather than none.
+    map.imageUrl = m->str("imageUrl");
+    if (map.imageUrl.empty() && map.url.find("/trackshow/") != std::string::npos) map.imageUrl = map.url + "/image/0";
+    textures::request(map.imageUrl);
   }
 
   const Json* claim = data.child("claim");
@@ -259,15 +480,9 @@ void report(const std::string& uid, const std::string& state, int checkpoint = -
     note("could not reach the site", res.error);
     return;
   }
-  if (res.status == 401) {
-    // The token was revoked from the website. Forget it here rather than
-    // retrying forever: the player revoked it on purpose.
-    config().token.clear();
-    config().save();
-    shared().write([](State& s) { s.linked = false; });
-    note("this machine was disconnected on the website");
-    return;
-  }
+  // The token was revoked from the website. Forget it here rather than
+  // retrying forever: the player revoked it on purpose.
+  if (revoked(res)) return;
   if (res.status != 200) {
     note("the site refused the report", "HTTP " + std::to_string(res.status));
     return;
@@ -318,6 +533,7 @@ void clearMap() {
 void loadBoards() {
   if (config().token.empty()) return;
   Response res = get(url("/api/game/bingo"), config().token);
+  if (revoked(res)) return;
   if (!res.ok || res.status != 200) {
     note("could not load your boards", res.error);
     return;
@@ -355,6 +571,7 @@ void loadBoard(const std::string& id) {
   if (config().token.empty()) return;
 
   Response res = get(url("/api/game/bingo?board=" + id), config().token);
+  if (revoked(res)) return;
   if (!res.ok || res.status != 200) {
     note("could not load that board", res.error);
     return;
@@ -405,7 +622,7 @@ void loadBoard(const std::string& id) {
       }
       // Asked for here, on the worker, so the render thread only ever picks up
       // pixels that are already decoded and waiting.
-      textures::request(tile.trackId, tile.imageUrl);
+      textures::request(tile.imageUrl);
       view.tiles.push_back(tile);
     }
   }
@@ -507,17 +724,29 @@ void check(const std::string& board, int idx, int timeMs = 0) {
   body += "}";
   Response res = post(url("/api/game/bingo"), body, config().token);
   if (!res.ok) {
+    log::line("worker: tile %d on board %s - the site could not be reached (%s)", idx, board.c_str(), res.error.c_str());
     bingoToast("Could not reach the site.");
     return;
   }
+  if (revoked(res)) return;
 
   Json data = Json::parse(res.body);
+  // Every answer goes in the log. An automatic submit happens while somebody
+  // is driving, and a refusal they did not see was indistinguishable from a
+  // submit that never happened.
+  log::line("worker: tile %d on board %s - HTTP %d, %s%s%s", idx, board.c_str(), res.status,
+            data.flag("captured") ? "captured" : "not captured", data.str("reason").empty() ? "" : ", reason ",
+            data.str("reason").c_str());
   if (res.status != 200) {
     bingoToast(data.str("error", "That did not work."));
     return;
   }
 
   if (data.flag("captured")) {
+    // The tile under the wheels still says "take it" until the map is reported
+    // again - up to a minute later. Ask now, so the panel shows the tile as
+    // yours instead of offering the button for what was just taken.
+    shared().push(Command{Command::Kind::ReportNow});
     int ms = data.integer("replayTime");
     if (ms > 0) {
       bingoToast("Tile captured - " + std::to_string(ms / 1000) + "." + std::to_string((ms % 1000) / 10) + "s");
@@ -632,6 +861,8 @@ void submitToTiles(int timeMs) {
  * cheap to read; nothing here waits on anything but the next 50 ms.
  */
 void readLoop() {
+  game::CalibrationState calib;
+  double lastCalib = 0;
   while (g_running) {
     // Attaching is retried until it takes: the offsets can only be validated
     // while a map is loaded, so a player who starts the game and sits in the
@@ -648,6 +879,14 @@ void readLoop() {
 
     const ULONGLONG passStarted = GetTickCount64();
     game::Snapshot snap = game::read();
+    // Worked out here, on the thread that reads the game, and handed over as
+    // a copy. The settings window used to ask the game module for it every
+    // frame, from the render thread, while the clock search was reallocating
+    // the very vectors it walked. Once a second is plenty for a status line.
+    if (nowSeconds() - lastCalib > 1.0) {
+      lastCalib = nowSeconds();
+      calib = game::calibration();
+    }
     // Should never happen now that nothing here waits on the network or the
     // log; if it does, this is the line that says where the time went.
     const ULONGLONG passMs = GetTickCount64() - passStarted;
@@ -672,6 +911,7 @@ void readLoop() {
       s.readAt = nowSeconds();
       s.raceTimeMs = snap.raceTimeMs;
       s.raceStep = snap.raceStep;
+      s.calib = calib;
       s.finishProbe = snap.finishProbe;
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -689,9 +929,6 @@ void loop() {
   // same Race.Time for as long as it is up, so without this one finish would
   // be submitted four times a second.
   std::string lastAutoSubmit;
-  // The retrospective path's own guard - a confirmation stands for as long as
-  // the player is on that map, so without this it would resubmit every tick.
-  std::string lastConfirmedSubmit;
   // uid:time of every finish already put on a tile, whichever path proved it.
   // The game's own flag fires at the line, the replay a second later and the
   // clock reset on retry - three proofs of one run must be one submission.
@@ -701,6 +938,9 @@ void loop() {
   // Shared by the panel and by auto-submit so they can never disagree.
   std::string proofKey;
   bool proofSeen = false;
+  // The replay that proves it must be younger than the moment the clock
+  // stopped - see bridge::sawFreshReplay.
+  unsigned long long proofNotBefore = 0;
   int proofTries = 0;
   double lastProofTry = 0;
   // The same guard for the replay bridge, with one difference: the file may
@@ -719,6 +959,7 @@ void loop() {
     s.linked = !config().token.empty();
     s.buildKey = game::buildKey();
     s.variant = game::variant();
+    s.selectedBoard = config().copy(config().board);
   });
 
   if (!config().token.empty()) {
@@ -736,12 +977,11 @@ void loop() {
           if (!config().token.empty()) loadBoards();
           break;
         case Command::Kind::CancelLink:
-          shared().write([](State& s) { s.linking = false; });
+          endLink("");
           break;
         case Command::Kind::Disconnect:
           if (!config().token.empty()) post(url("/api/game/idle"), "{}", config().token);
-          config().token.clear();
-          config().save();
+          config().edit([](Config& c) { c.token.clear(); });
           shared().write([](State& s) {
             s.linked = false;
             s.boards.clear();
@@ -756,8 +996,8 @@ void loop() {
           if (!config().board.empty()) loadBoard(config().board);
           break;
         case Command::Kind::SelectBoard:
-          config().board = command.text;
-          config().save();
+          config().edit([&](Config& c) { c.board = command.text; });
+          shared().write([&](State& s) { s.selectedBoard = command.text; });
           loadBoard(command.text);
           lastBoardRefresh = nowSeconds();
           break;
@@ -769,9 +1009,11 @@ void loop() {
           // window forward - so an already-open browser is raised rather than a
           // second one started. There is no way to reuse a specific tab, and
           // pretending otherwise would be a promise this cannot keep.
-          if (!command.text.empty()) {
+          if (safeToOpen(command.text)) {
             ShellExecuteA(nullptr, "open", command.text.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            toast("Opened the upload page in your browser.");
+            toast("Opened in your browser.");
+          } else if (!command.text.empty()) {
+            log::line("worker: refused to open '%s' - not an https link", command.text.c_str());
           }
           break;
         case Command::Kind::Check:
@@ -785,7 +1027,7 @@ void loop() {
           // game it was found in, which is why what gets kept is the chain.
           const uintptr_t address =
               static_cast<uintptr_t>(strtoul(command.text.c_str(), nullptr,
-                                             command.text.rfind("0x", 0) == 0 ? 16 : 16));
+                                             16));  // Cheat Engine shows hex, with or without 0x
           if (game::calibrateFromAddress(address)) {
             toast("The clock is calibrated - times come from the game now.");
           } else {
@@ -804,12 +1046,29 @@ void loop() {
           game::forgetCalibration();
           toast("Calibration cleared.");
           break;
+        case Command::Kind::CheckUpdate:
+          checkUpdate();
+          break;
         case Command::Kind::ReleaseAll:
           if (!config().token.empty()) post(url("/api/game/idle"), "{}", config().token);
           clearMap();
           toast("Marks released.");
           break;
       }
+    }
+
+    pollLink(nowSeconds());
+    refreshTop(nowSeconds());
+    // Once a session, and again ten minutes after a check that did not get
+    // through: the game is often started before the network is up (after
+    // sleep, on Wi-Fi), and one failed check would otherwise hide a release
+    // until the next start.
+    static double s_nextUpdateCheck = 0;
+    if (config().checkUpdates && s_nextUpdateCheck >= 0 && nowSeconds() >= s_nextUpdateCheck) {
+      checkUpdate();
+      bool failed = false;
+      shared().write([&](State& s) { failed = s.update.status == UpdateInfo::Status::Failed; });
+      s_nextUpdateCheck = failed ? nowSeconds() + 600 : -1;
     }
 
     // The game is read on its own thread (readLoop); this only takes the
@@ -842,11 +1101,19 @@ void loop() {
         proofSeen = false;
         proofTries = 0;
         lastProofTry = 0;
+        // Back to when the clock stopped, where the game knows it, plus a
+        // couple of seconds for the file system's clock; otherwise five, for
+        // however long this loop was busy before it noticed.
+        const unsigned long long second = 10000000ULL;
+        const unsigned long long back =
+            snap.stoppedMsAgo >= 0 ? static_cast<unsigned long long>(snap.stoppedMsAgo) * 10000ULL + 2 * second
+                                   : 5 * second;
+        proofNotBefore = fileTimeNow() - back;
       }
       if (!proofSeen && proofTries < 10 && now - lastProofTry > 1.0) {
         lastProofTry = now;
         proofTries++;
-        proofSeen = bridge::sawFreshReplay(snap.uid);
+        proofSeen = bridge::sawFreshReplay(snap.uid, proofNotBefore);
       }
     } else if (snap.state != game::RaceState::Finished) {
       proofKey.clear();
@@ -958,25 +1225,16 @@ void loop() {
       submitToTiles(fin.ms);
     }
 
-    // The retrospective path: no replay was written - a run that misses your
-    // own record does not get one - but the clock has since restarted from
-    // zero, which only happens after a finish. A pause fails this test by
-    // construction: its clock carries on from where it stopped.
-    //
-    // Late by however long the player took to press restart, and that is the
-    // whole price. The immediate path above still covers a first finish on a
-    // map, which is most of what a bingo board is made of.
-    if (linked && config().autoSubmitSelfReported && snap.confirmedFinishMs >= 1000) {
-      const std::string confirmedKey = snap.uid + ":" + std::to_string(snap.confirmedFinishMs) + ":confirmed";
-      const std::string plainKey = snap.uid + ":" + std::to_string(snap.confirmedFinishMs);
-      if (confirmedKey != lastConfirmedSubmit && plainKey != lastSubmittedFinish) {
-        lastConfirmedSubmit = confirmedKey;
-        lastSubmittedFinish = plainKey;
-        log::line("worker: confirmed finish %d ms on map %s - checking board tiles", snap.confirmedFinishMs,
-                  snap.uid.c_str());
-        submitToTiles(snap.confirmedFinishMs);
-      }
-    }
+    // There used to be a second, retrospective path here: no replay written,
+    // but the clock restarted from zero afterwards, which was taken to mean
+    // the stop had been a finish. It is also exactly what Escape followed by
+    // Restart looks like - the everyday move of somebody grinding a map - and
+    // it put the moment they paused on a bingo tile as a time nobody drove.
+    // A restart cannot tell the two apart, so it no longer submits anything.
+    // The two proofs a pause cannot produce are above: the game's own finish
+    // flag, and a replay of this map written after the clock stopped. Where
+    // neither arrives, the button on the results screen takes the tile.
+    // `confirmedFinishMs` still tells the panel what happened.
 
     // ------------------------------------------------- the replay bridge
     //
@@ -1071,16 +1329,19 @@ void stop() {
 }
 
 void releaseNow() {
-  if (config().token.empty()) return;
+  // A copy: this runs on the window's thread, and the worker may be writing it.
+  const std::string token = config().copy(config().token);
+  if (token.empty()) return;
   log::line("releasing marks - the game is closing");
   // Deliberately synchronous and deliberately short: this runs on the game's
   // own thread as its window closes, and a mark left standing would sit on the
   // remaining list for its last few minutes telling people a lie.
-  request("POST", config().baseUrl + "/api/game/idle", "{}", config().token, true, 1500);
+  request("POST", config().baseUrl + "/api/game/idle", "{}", token, true, 1500);
 }
 
 void signalStop() {
   g_running = false;
+  bridge::detach();
   // Detached rather than joined: the caller is the process shutting down, and
   // the loop may be inside an HTTP request with seconds left on its timeout.
   if (g_thread.joinable()) g_thread.detach();

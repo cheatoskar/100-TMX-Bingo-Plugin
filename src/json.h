@@ -50,7 +50,11 @@ class Json {
   }
 
   int integer(const std::string& key, int fallback = 0) const {
-    return static_cast<int>(num(key, static_cast<double>(fallback)));
+    // Clamped before the cast: a double outside int's range cast to int is
+    // undefined behaviour, and a number from the network can be anything.
+    const double d = num(key, static_cast<double>(fallback));
+    if (!(d >= -2147483648.0 && d <= 2147483647.0)) return fallback;
+    return static_cast<int>(d);
   }
 
   // Tri-state on purpose: "is this map open" has a third answer, "the catalogue
@@ -70,7 +74,7 @@ class Json {
 
   static Json parse(const std::string& text) {
     size_t i = 0;
-    Json out = parseValue(text, i);
+    Json out = parseValue(text, i, 0);
     return out;
   }
 
@@ -103,13 +107,23 @@ class Json {
     while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
   }
 
-  static Json parseValue(const std::string& s, size_t& i) {
+  // Nesting deeper than anything the site sends is cut off rather than
+  // followed: each level is a stack frame, and a body of a few hundred
+  // kilobytes of `[[[[` would otherwise overflow the thread's stack and take
+  // the game with it.
+  static constexpr int kMaxDepth = 64;
+
+  static Json parseValue(const std::string& s, size_t& i, int depth) {
     skip(s, i);
     if (i >= s.size()) return Json();
+    if (depth > kMaxDepth) {
+      i = s.size();
+      return Json();
+    }
 
     switch (s[i]) {
-      case '{': return parseObject(s, i);
-      case '[': return parseArray(s, i);
+      case '{': return parseObject(s, i, depth + 1);
+      case '[': return parseArray(s, i, depth + 1);
       case '"': {
         Json v;
         v.type = Type::String;
@@ -210,7 +224,7 @@ class Json {
     return v;
   }
 
-  static Json parseArray(const std::string& s, size_t& i) {
+  static Json parseArray(const std::string& s, size_t& i, int depth) {
     Json v;
     v.type = Type::Array;
     i++;  // [
@@ -220,7 +234,7 @@ class Json {
       return v;
     }
     while (i < s.size()) {
-      v.array.push_back(parseValue(s, i));
+      v.array.push_back(parseValue(s, i, depth));
       skip(s, i);
       if (i < s.size() && s[i] == ',') {
         i++;
@@ -232,7 +246,7 @@ class Json {
     return v;
   }
 
-  static Json parseObject(const std::string& s, size_t& i) {
+  static Json parseObject(const std::string& s, size_t& i, int depth) {
     Json v;
     v.type = Type::Object;
     i++;  // {
@@ -246,7 +260,7 @@ class Json {
       std::string key = parseString(s, i);
       skip(s, i);
       if (i < s.size() && s[i] == ':') i++;
-      v.object[key] = parseValue(s, i);
+      v.object[key] = parseValue(s, i, depth);
       skip(s, i);
       if (i < s.size() && s[i] == ',') {
         i++;
