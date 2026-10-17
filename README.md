@@ -11,7 +11,7 @@ for TrackMania **Nations Forever** and **United Forever**.
 You do not have to be part of the 100% project to use it - make a board, send
 the link to three friends, and race them for the evening.
 
-![The bingo panel and the settings window, in game](images/BingoIngame.png)
+![The 100% TMX and Bingo panels beside the settings menu, in game](images/cover.jpg)
 
 **[Download](../../releases/latest)** · **[100tmx.com](https://100tmx.com)** ·
 **[Bingo boards](https://100tmx.com/events/bingo)**
@@ -385,7 +385,9 @@ TM Vibrant Shaders menu:
 
 While you are **driving**, the panels let clicks through to the game. Standing
 on the line, paused, on the results screen or back from alt-tab, you can click
-and drag them normally. **F9** always makes them clickable and opens the menu.
+and drag them normally, and drag the bottom-right corner to make one wider or
+narrower - the height follows the content. **F9** always makes them clickable
+and opens the menu.
 Each panel has two buttons in its corner: **-** folds it down to its title row
 (the same button opens it again), **x** hides it; switch a hidden panel back on
 under **Settings** (or the **Panels** switch at the top of the menu).

@@ -1207,8 +1207,13 @@ const Tile* tileAt(const BoardView& board, int idx) {
  * A fixed height was either too short - a finish time and its buttons cut off
  * at the bottom - or a block of empty panel over the track. Taller than the
  * screen, it stops at the edge and scrolls with the wheel.
+ *
+ * The height is the one measured at the end of the last frame (fitHeight),
+ * not ImGui's own fit: a window sized 0 on an axis is auto-fitting, and an
+ * auto-fitting window has no resize grip - which took the corner away in 1.1.0.
  */
-void placeWindow(bool& place, float x, float y, float savedW, float& width, ImVec2 fallbackPos, float fallbackW) {
+void placeWindow(bool& place, float x, float y, float savedW, float& width, float height, ImVec2 fallbackPos,
+                 float fallbackW) {
   const ImGuiIO& io = ImGui::GetIO();
   const float margin = 16.0f * g_scale;
   if (place && io.DisplaySize.x > 0) {
@@ -1220,10 +1225,16 @@ void placeWindow(bool& place, float x, float y, float savedW, float& width, ImVe
     ImGui::SetNextWindowPos(position, ImGuiCond_Always);
   }
   if (width <= 0) width = fallbackW;
-  ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);  // 0: fit the content
+  ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);  // 0 on the first frame: ImGui fits it
   ImGui::SetNextWindowSizeConstraints(ImVec2(220.0f * g_scale, 0.0f),
                                       ImVec2(1600.0f * g_scale, std::max(200.0f, io.DisplaySize.y - margin * 2.0f)));
   ImGui::SetNextWindowBgAlpha(config().overlayAlpha);
+}
+
+/** The height this window's content took, for the next frame's size. Call after the last item. */
+float fitHeight() {
+  const ImGuiStyle& style = ImGui::GetStyle();
+  return ImGui::GetCursorPosY() - style.ItemSpacing.y + style.WindowPadding.y;
 }
 
 /** Remembered when a drag ends rather than every frame: this writes a file. */
@@ -1506,7 +1517,8 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
   // yet - and stayed there, on top of everything the map panel then grew into.
   if (c.bingoX < 0 || c.bingoY < 0) s_place = true;
   static float s_width = 0.0f;
-  placeWindow(s_place, c.bingoX, c.bingoY, c.bingoW, s_width, below, width);
+  static float s_height = 0.0f;
+  placeWindow(s_place, c.bingoX, c.bingoY, c.bingoW, s_width, s_height, below, width);
 
   ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 6.0f * g_scale);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * g_scale, 10.0f * g_scale));
@@ -1525,6 +1537,7 @@ void drawBingoPanel(const State& state, bool canClick, float scale) {
     // A toast is the answer to something just pressed, so it shows either way.
     drawToast(state.bingoToast, state.bingoToastUntil);
     s_width = ImGui::GetWindowSize().x;
+    s_height = fitHeight();
     rememberWindow(c.bingoX, c.bingoY, c.bingoW, c.bingoH, canClick);
   }
   ImGui::End();
@@ -1562,7 +1575,8 @@ void drawPanel(const State& state) {
   }
   const bool placing = g_placePanel;
   static float s_width = 0.0f;
-  placeWindow(g_placePanel, c.overlayX, c.overlayY, c.overlayW, s_width,
+  static float s_height = 0.0f;
+  placeWindow(g_placePanel, c.overlayX, c.overlayY, c.overlayW, s_width, s_height,
               ImVec2(c.overlayCorner == 0 ? margin : io.DisplaySize.x - width - margin, margin + 80.0f * g_scale),
               width);
 
@@ -1618,6 +1632,7 @@ void drawPanel(const State& state) {
 
     if (!c.overlayMin) drawPanelMap(state, canClick);
     drawToast(state.toast, state.toastUntil);
+    s_height = fitHeight();
 
     g_panelPos = ImGui::GetWindowPos();
     g_panelSize = ImGui::GetWindowSize();
@@ -2548,6 +2563,10 @@ void setupStyle() {
   colors[ImGuiCol_SliderGrabActive] = ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
   colors[ImGuiCol_CheckMark] = kAccentHi;
   colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+  // The corner a panel is resized by: quiet until the pointer is on it.
+  colors[ImGuiCol_ResizeGrip] = ImVec4(1.0f, 1.0f, 1.0f, 0.12f);
+  colors[ImGuiCol_ResizeGripHovered] = ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.70f);
+  colors[ImGuiCol_ResizeGripActive] = ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.95f);
   colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.45f);
 
   // Segoe UI (every Windows has it) reads much better than ImGui's pixel font,
