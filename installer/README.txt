@@ -8,6 +8,17 @@ ENGLISH
 You need the TrackMania ModLoader first:
 https://tomashu.dev/software/tmloader/
 
+INSTALL - with automatic updates (recommended)
+  The ModLoader downloads the mod and every new version itself.
+  You don't need this zip for it.
+  1. Close the ModLoader completely (also the tray icon).
+  2. Open this file with Notepad (paste it into the Explorer address bar):
+       %LOCALAPPDATA%\TMLoader\config.yaml
+  3. Add this line under "servers:" (two spaces in front, like the
+     lines already there) and save:
+       - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
+  4. Start the ModLoader, tick "100% TMX + Bingo", start the game.
+
 INSTALL - the easy way
   1. Unzip this whole zip (right-click it, "Extract All...").
   2. Run 100TMX-Installer.exe from the unzipped folder.
@@ -44,6 +55,18 @@ DEUTSCH
 
 Zuerst wird der TrackMania ModLoader benötigt:
 https://tomashu.dev/software/tmloader/
+
+INSTALLIEREN - mit automatischen Updates (empfohlen)
+  Der ModLoader holt den Mod und jede neue Version selbst.
+  Diese ZIP wird dafür nicht gebraucht.
+  1. ModLoader ganz schließen (auch das Symbol im Infobereich).
+  2. Diese Datei mit dem Editor öffnen (in die Adresszeile des
+     Explorers einfügen):
+       %LOCALAPPDATA%\TMLoader\config.yaml
+  3. Diese Zeile unter "servers:" einfügen (zwei Leerzeichen davor,
+     wie bei den Zeilen dort) und speichern:
+       - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
+  4. ModLoader starten, "100% TMX + Bingo" anhaken, Spiel starten.
 
 INSTALLIEREN - der einfache Weg
   1. Die ganze ZIP entpacken (Rechtsklick, "Alle extrahieren...").
