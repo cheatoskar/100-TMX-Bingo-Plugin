@@ -7,3 +7,7 @@ build/
 *.exe
 *.obj
 *.pdb
+
+# Notes for coding agents stay local.
+CLAUDE.md
+.claude/
