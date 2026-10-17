@@ -41,7 +41,8 @@ website. The full guide is in the [README](https://github.com/cheatoskar/100-TMX
 - **The tile button goes away once the tile is yours.** A tile taken
   automatically still offered *Take the tile* until the next refresh.
 - **Panels fold and close themselves**: **-** folds a panel to its title row,
-  **x** hides it. They used to open the menu instead.
+  **x** hides it. They used to open the menu instead. Drag the bottom-right
+  corner to make a panel wider or narrower; the height follows the content.
 - **The TMX top 10** for the map you are on, with where your run would place.
 - **Told when a new version is out**, with a download link - in the 100% TMX
   panel and under **About**. Switch it off there if you would rather not.
