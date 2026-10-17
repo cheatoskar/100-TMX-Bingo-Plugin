@@ -2627,6 +2627,47 @@ bool capturingInput() { return g_ready && g_uiOpen; }
 
 void setMenuOpen(bool open) { g_uiOpen = open; }
 
+/*
+ * ImGui's draw data, drawn under states the game cannot have bent.
+ *
+ * The DX9 backend resets blending, shaders and stage 0's colour ops, but not
+ * how stage 0 finds its texture coordinates. The game leaves those set from
+ * whatever it drew last - a reflection generating them from the camera, a
+ * scrolling texture with a transform on - and then every quad samples
+ * somewhere else: map pictures smeared into fans, and text and panel
+ * backgrounds, which all read the font atlas, landing on its empty parts and
+ * vanishing. It came and went with the map and the camera, which is why it
+ * looked random. The same goes for sRGB, a colour write mask and mip levels.
+ *
+ * Set here inside a state block of our own, because the backend captures the
+ * state after these are changed and would hand the game ours back.
+ */
+void renderDrawData(IDirect3DDevice9* device) {
+  IDirect3DStateBlock9* saved = nullptr;
+  if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &saved))) saved = nullptr;
+  if (saved) saved->Capture();
+
+  device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+  device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+  device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+  device->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, 0);
+  device->SetSamplerState(0, D3DSAMP_MIPMAPLODBIAS, 0);
+  device->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+  device->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+  device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+  device->SetRenderState(D3DRS_WRAP0, 0);
+  device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+  device->SetRenderState(D3DRS_VERTEXBLEND, D3DVBF_DISABLE);
+  device->SetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, FALSE);
+
+  ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+  if (saved) {
+    saved->Apply();
+    saved->Release();
+  }
+}
+
 void draw(IDirect3DDevice9* device) {
   if (!g_ready) setup(device);
   if (!g_ready) return;
@@ -2704,7 +2745,7 @@ void draw(IDirect3DDevice9* device) {
 
   ImGui::EndFrame();
   ImGui::Render();
-  ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+  renderDrawData(device);
   if (g_window && ImGui::GetDrawData()->TotalVtxCount > 0) SetPropW(g_window, kTopOverlay, selfHandle());
   publishMouseOwner();
 }

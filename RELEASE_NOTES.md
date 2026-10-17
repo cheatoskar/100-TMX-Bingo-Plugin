@@ -1,4 +1,4 @@
-## 100% TMX + Bingo 1.0.0 - the first official release
+## 100% TMX + Bingo 1.1.0 - a new look, your own time online
 
 Bingo boards and the [100% TMX](https://100tmx.com) project, inside TrackMania
 Nations and United Forever. Race your friends on a bingo board without leaving
@@ -30,14 +30,35 @@ website. The full guide is in the [README](https://github.com/cheatoskar/100-TMX
 - **Two windows**, moved and resized separately, that stay out of the way while
   you drive and are clickable whenever you are not.
 
-### New in 1.0.0
+### New in 1.1.0
 
-- **No more trojan warning from the installer, we hope.** The old installer
-  carried the mod inside itself and unpacked it - the pattern Windows Defender
-  flags as `Wacatac!ml`. The new one only copies the folder that sits next to it
-  in the zip, and the folder can be copied by hand just as well.
-- Finishes are detected on runs longer than 30 minutes.
-- The replay uploader sends every autosaved replay, not only project maps.
+- **A new look**, in the style of the TM Vibrant Shaders menu, with the mod's
+  logo in the ModLoader. Both mods can run together: whichever menu is drawn on
+  top gets the mouse, and Ctrl+F9 stays with the shaders.
+- **Your own time online.** On a server the mod could read whoever the server
+  listed first - a stranger's 4:38 while you drove 0:24. It now finds the
+  player sitting at your PC.
+- **The tile button goes away once the tile is yours.** A tile taken
+  automatically still offered *Take the tile* until the next refresh.
+- **Panels fold and close themselves**: **-** folds a panel to its title row,
+  **x** hides it. They used to open the menu instead.
+- **The TMX top 10** for the map you are on, with where your run would place.
+- **Told when a new version is out**, with a download link - in the 100% TMX
+  panel and under **About**. Switch it off there if you would rather not.
+- **Map pictures no longer smear and the text no longer vanishes** on some maps
+  and camera angles; the game left a texture setting behind that the overlay
+  did not reset.
+- **Works on Windows 7** (with update KB3140245): the mod asks for TLS 1.2,
+  without which the site, TMX and GitHub refused every request.
+- **Your machine link is encrypted** in `config.ini`, tied to your Windows
+  account. A copied file is useless elsewhere; the mod asks to connect again.
+- Long sessions no longer lose the race when the game's memory grows past 2 GB.
+- Uninstalling no longer leaves the ModLoader profile pointing at a deleted
+  folder, which stopped the game from starting.
+
+**Updating from 1.0.0:** install as usual, then close the ModLoader completely
+(also from the tray) and open it again - it only sees a new version on start.
+1.0.0 cannot tell you about updates itself; from 1.1.0 on it will.
 
 Credit in the 100% project still comes only from replays on TMX - the mod shows
 what the site knows and can never award a finish.

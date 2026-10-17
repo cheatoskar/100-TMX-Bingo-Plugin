@@ -251,7 +251,7 @@ bool findAutosave(const std::string& uid, Found& out, unsigned long long notBefo
   }
 
   if (best == 0) {
-    log::once("autosave", "bridge: nothing written in the last %ds under %s", kAutosaveAgeSeconds,
+    log::once("autosave-scan", "bridge: nothing written in the last %ds under %s", kAutosaveAgeSeconds,
               searched.empty() ? "(no replay folder found)" : searched.c_str());
   }
   return best != 0;
@@ -674,7 +674,7 @@ bool offerFinish(const std::string& site, int trackId, const std::string& mapNam
 
   Found found;
   if (!findAutosave(uid, found)) {
-    log::once("autosave", "bridge: no autosave written in the last %ds - is autosaving on?", kAutosaveAgeSeconds);
+    log::once("autosave-offer", "bridge: no autosave written in the last %ds - is autosaving on?", kAutosaveAgeSeconds);
     return false;
   }
 

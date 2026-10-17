@@ -1,5 +1,6 @@
 #include "http.h"
 
+#include "log.h"
 #include "tmx_version.h"
 
 #include <windows.h>
@@ -42,6 +43,23 @@ struct Handle {
   Handle& operator=(const Handle&) = delete;
   operator HINTERNET() const { return h; }
 };
+
+// Why a request never got an answer, in the log only: "did not answer" on
+// screen is enough for a player, but 22 minutes of it on 2026-10-17 could have
+// been the network, a name lookup, a certificate or TLS, and only the code
+// tells those apart. Logged once per change, so an outage is one line.
+void logFailure(const wchar_t* host, const char* step) {
+  const DWORD code = GetLastError();
+  const char* what = code == ERROR_WINHTTP_TIMEOUT                  ? "timed out"
+                     : code == ERROR_WINHTTP_NAME_NOT_RESOLVED      ? "name not resolved - no network or DNS"
+                     : code == ERROR_WINHTTP_CANNOT_CONNECT         ? "cannot connect"
+                     : code == ERROR_WINHTTP_CONNECTION_ERROR       ? "connection reset"
+                     : code == ERROR_WINHTTP_SECURE_FAILURE         ? "certificate or TLS refused"
+                     : code == ERROR_WINHTTP_INVALID_SERVER_RESPONSE ? "invalid server response"
+                                                                    : "other";
+  log::once("http", "http: %s to %s failed - WinHTTP %lu (%s)", step, narrow(host).c_str(),
+            static_cast<unsigned long>(code), what);
+}
 
 std::string header(HINTERNET request, DWORD which) {
   DWORD size = 0;
@@ -131,11 +149,13 @@ Response request(const std::string& method,
   if (!WinHttpSendRequest(request, headers.c_str(), static_cast<DWORD>(headers.size()),
                           body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()),
                           static_cast<DWORD>(body.size()), static_cast<DWORD>(body.size()), 0)) {
+    logFailure(host, "send");
     out.error = "the site did not answer";
     return out;
   }
 
   if (!WinHttpReceiveResponse(request, nullptr)) {
+    logFailure(host, "receive");
     out.error = "no response";
     return out;
   }

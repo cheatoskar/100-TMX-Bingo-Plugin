@@ -76,7 +76,9 @@ Everything is in **`100TMX.zip`** on the [Releases](../../releases/latest) page:
 2. Run **`100TMX-Installer.exe`** from the unzipped folder.
 3. Open the ModLoader, tick **100% TMX + Bingo**, start the game.
 
-To update, do the same with the new zip. To remove the mod, run
+To update, do the same with the new zip - the mod says in game when one is
+out (**About -> Updates**). Then close the ModLoader completely and open it
+again: it only sees a new version on start. To remove the mod, run
 `100TMX-Installer.exe /uninstall` (`/quiet` installs without the dialog).
 
 ### By hand, without the installer

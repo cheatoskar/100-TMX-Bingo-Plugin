@@ -1059,10 +1059,16 @@ void loop() {
 
     pollLink(nowSeconds());
     refreshTop(nowSeconds());
-    static bool s_updateChecked = false;
-    if (!s_updateChecked && config().checkUpdates) {
-      s_updateChecked = true;
+    // Once a session, and again ten minutes after a check that did not get
+    // through: the game is often started before the network is up (after
+    // sleep, on Wi-Fi), and one failed check would otherwise hide a release
+    // until the next start.
+    static double s_nextUpdateCheck = 0;
+    if (config().checkUpdates && s_nextUpdateCheck >= 0 && nowSeconds() >= s_nextUpdateCheck) {
       checkUpdate();
+      bool failed = false;
+      shared().write([&](State& s) { failed = s.update.status == UpdateInfo::Status::Failed; });
+      s_nextUpdateCheck = failed ? nowSeconds() + 600 : -1;
     }
 
     // The game is read on its own thread (readLoop); this only takes the
