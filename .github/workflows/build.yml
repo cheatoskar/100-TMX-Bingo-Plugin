@@ -137,9 +137,10 @@ jobs:
           $sums | Set-Content -Encoding ascii out/SHA256SUMS.txt
           # RELEASE_NOTES.md is what this release says about itself - edit it
           # before tagging. The hash table follows it, GitHub's list of changes
-          # after that.
+          # after that. {{TAG}} in the notes becomes this build's tag, so pictures
+          # come from the tagged tree.
           $body = @()
-          if (Test-Path RELEASE_NOTES.md) { $body += Get-Content RELEASE_NOTES.md -Encoding utf8; $body += "" }
+          if (Test-Path RELEASE_NOTES.md) { $body += (Get-Content RELEASE_NOTES.md -Encoding utf8) -replace '\{\{TAG\}\}', $env:GITHUB_REF_NAME; $body += "" }
           $body += @(
             "<details>"
             "<summary>SHA-256 checksums</summary>"

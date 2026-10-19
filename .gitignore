@@ -11,3 +11,4 @@ build/
 # Notes for coding agents stay local.
 CLAUDE.md
 .claude/
+__pycache__/

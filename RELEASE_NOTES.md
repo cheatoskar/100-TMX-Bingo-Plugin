@@ -2,6 +2,8 @@
 
 Bingo boards from [100tmx.com](https://100tmx.com) and the 100% TMX project status, right inside **TrackMania Nations & United Forever**.
 
+![The 100% TMX and Bingo panels next to the menu, in game](https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/{{TAG}}/images/cover.jpg)
+
 ---
 
 ### What's new
