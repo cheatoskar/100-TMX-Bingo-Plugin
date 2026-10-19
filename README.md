@@ -105,7 +105,8 @@ Nothing else is touched: no registry, no game folder, no startup entry.
 <details>
 <summary>Without the ModLoader (ASI loader)</summary>
 
-1. Get `100TMX.asi` from [Releases](../../releases/latest) and the 32-bit
+1. Get `100TMX.dll` from [Releases](../../releases/latest) and rename it to
+   `100TMX.asi`. Get the 32-bit
    [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) as
    `binkw32.dll`.
 2. In the TrackMania folder, rename the existing `binkw32.dll` to
@@ -293,23 +294,25 @@ Dear ImGui is fetched by CMake. Pushing a `v*` tag builds a release with
 
 ### Releases and the ModLoader update server
 
-Each release also carries `100TMX-ModLoader-server.zip`: the DLL alone, which
-the ModLoader unpacks into `products\100% TMX + Bingo\<version>\`. After a
-tag's release the job `modloader-server` rebuilds the update server on GitHub
-Pages (branch `gh-pages`): `modloader/index.json` lists every release that
-carries that zip and isn't a pre-release, `modloader/beta/index.json` all of
-them, each with the zip's SHA-256 and the release notes as changelog. Product
-name, description and dependencies come from `install-modloader.ps1`; the icon
-is `images/icon.png`, served next to the index. Running the workflow by hand
-rebuilds the server without a release.
+A release carries `100TMX.zip` (installer and product folder), `100TMX.dll`
+and `SHA256SUMS.txt`. After a tag's release the job `modloader-server` rebuilds
+the update server on GitHub Pages (branch `gh-pages`): for every release from
+1.1.0 on it takes `100TMX.dll`, packs it into the zip the ModLoader downloads
+(the DLL alone, unpacked into `products\100% TMX + Bingo\<version>\`) and
+serves it at `modloader/files/<version>/100TMX-ModLoader-server.zip`.
+`modloader/index.json` lists the releases that aren't pre-releases,
+`modloader/beta/index.json` all of them, each with the zip's SHA-256 and the
+release notes as changelog. The zip is byte-identical for the same DLL, so a
+rebuilt index keeps its hashes. Product name, description and dependencies
+come from `install-modloader.ps1`; the icon is `images/icon.png`, served next
+to the index. Running the workflow by hand rebuilds the server without a
+release.
 
 - **One-time setup:** *Settings → Pages → Build and deployment → Deploy from a
   branch → `gh-pages`, `/ (root)`* (the branch exists after the first tag
   build). Until then the server URL answers 404.
-- Releases from before the server have no `100TMX-ModLoader-server.zip` and
-  aren't listed. The repository variable `MODLOADER_BACKFILL=1` makes the job
-  add it to 1.0.0 and later from their own `100TMX.dll`; it changes published
-  releases, so it's off by default.
+- Releases before 1.1.0 aren't listed (`MIN_VERSION` in
+  `tools/modloader_server.py`).
 - Check the format locally (no network):
   `python tools/modloader_server.py selftest` (uses `build/Release/100TMX.dll`
   if built; `--reference https://fullspeed.mooo.com/modloader/index.json`

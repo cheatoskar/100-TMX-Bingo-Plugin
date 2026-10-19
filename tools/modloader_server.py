@@ -13,9 +13,10 @@ Only icon_link differs: the index points at the copy served next to it on GitHub
 
   zip       100TMX.dll -> 100TMX-ModLoader-server.zip (byte-identical for the same DLL)
   index     index.json (stable releases) and beta/index.json (stable + pre-releases) from the
-            GitHub releases that carry 100TMX-ModLoader-server.zip; changelogs from the release
-            notes (RELEASE_NOTES.md as it was at that tag)
-  missing   tags of releases without that zip but with 100TMX.dll (backfill), 1.0.0 and later
+            GitHub releases' 100TMX.dll (from MIN_VERSION on). Each version's zip is written next
+            to the index (files/<version>/100TMX-ModLoader-server.zip) and served from there, so
+            the releases carry no ModLoader zip that people download by mistake; changelogs from
+            the release notes (RELEASE_NOTES.md as it was at that tag)
   check     validate index.json files and zips against the format and TMLoader's own field list
   selftest  zip + index + check from a local DLL and fake releases (no network needed)
 
@@ -34,10 +35,11 @@ import zipfile
 REPO = "cheatoskar/100-TMX-Bingo-Plugin"
 PRODUCT = "100% TMX + Bingo"  # the product folder name; install-modloader.ps1 uses the same folder
 ASSET = "100TMX-ModLoader-server.zip"  # not 100TMX-ModLoader.zip: v0.9.5 carries one with a folder inside
+FILES = "files"  # <index folder>/files/<version>/100TMX-ModLoader-server.zip
 DLL = "100TMX.dll"
 GAME = "TmForever"
 ICON_URL = "https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/icon.png"
-BACKFILL_SINCE = "1.0.0"  # the first release with the "100% TMX + Bingo" zip layout
+MIN_VERSION = "1.1.0"  # the first version on the server; older releases are not listed
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALLER = os.path.join(ROOT, "install-modloader.ps1")
 CHANGELOG_LIMIT = 6000  # characters per version; the ModLoader shows it as plain text
@@ -227,13 +229,14 @@ def load_releases(args):
     return fetch_releases(args.repo, os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"))
 
 
-def asset_hash(asset, cache_dir, local):
-    """SHA-256 of the asset as the ModLoader will download it (via the release redirect)."""
+def fetch_asset(asset, cache_dir, local):
+    """The release asset as a local file: downloaded once into the cache, checked against the
+    digest the API lists."""
     name = asset["browser_download_url"]
     if name in local:
-        return sha256_file(local[name])
+        return local[name]
     os.makedirs(cache_dir, exist_ok=True)
-    path = os.path.join(cache_dir, hashlib.sha1(name.encode()).hexdigest() + ".zip")
+    path = os.path.join(cache_dir, hashlib.sha1(name.encode()).hexdigest() + ".bin")
     if not os.path.exists(path):
         with _get(name, accept="application/octet-stream") as r, open(path + ".part", "wb") as f:
             while True:
@@ -247,10 +250,16 @@ def asset_hash(asset, cache_dir, local):
     listed = (asset.get("digest") or "").removeprefix("sha256:")
     if listed and listed != digest:
         raise SystemExit(f"{name}: downloaded sha256 {digest} != listed {listed}")
-    return digest
+    return path
 
 
-def build_index(releases, product_meta, version_meta, hash_of):
+def default_base_url(repo):
+    """Where GitHub Pages serves the index folder: https://<owner>.github.io/<repo>/modloader."""
+    owner, name = repo.split("/", 1)
+    return f"https://{owner.lower()}.github.io/{name}/modloader"
+
+
+def build_index(releases, product_meta, version_meta, zip_for):
     """-> (stable index, beta index, skipped tags)."""
     entries, skipped = [], []
     for rel in releases:
@@ -258,15 +267,16 @@ def build_index(releases, product_meta, version_meta, hash_of):
         if rel.get("draft") or not tag.startswith("v") or not SEMVER.match(tag[1:]):
             continue
         version = tag[1:]
-        asset = next((a for a in rel.get("assets", []) if a.get("name") == ASSET), None)
-        if not asset:
+        dll = next((a for a in rel.get("assets", []) if a.get("name") == DLL), None)
+        if not dll or semver_key(version) < semver_key(MIN_VERSION):
             skipped.append(tag)
             continue
+        link, digest = zip_for(version, dll)
         entry = {
             "executable": version_meta["executable"],
             "dependencies": version_meta["dependencies"],
-            "download_link": asset["browser_download_url"],
-            "hash_sha256": hash_of(asset),
+            "download_link": link,
+            "hash_sha256": digest,
             "changelog": changelog_for(version, rel),
         }
         entries.append((version, bool(rel.get("prerelease")), entry))
@@ -427,24 +437,20 @@ def cmd_index(args):
     product_meta, version_meta = read_metadata(args.installer)
     local = dict(kv.split("=", 1) for kv in (args.local or []))
     cache = args.cache or os.path.join(tempfile.gettempdir(), "100tmx-modloader-cache")
-    stable, beta, skipped = build_index(releases, product_meta, version_meta,
-                                        lambda a: asset_hash(a, cache, local))
+    base = (args.base_url or default_base_url(args.repo)).rstrip("/")
+
+    def zip_for(version, dll):
+        rel_path = f"{FILES}/{version}/{ASSET}"
+        digest = make_zip(fetch_asset(dll, cache, local), os.path.join(args.out_dir, *rel_path.split("/")))
+        return f"{base}/{rel_path}", digest
+
+    stable, beta, skipped = build_index(releases, product_meta, version_meta, zip_for)
     write_json(os.path.join(args.out_dir, "index.json"), stable)
     write_json(os.path.join(args.out_dir, "beta", "index.json"), beta)
     for name, idx in (("index.json", stable), ("beta/index.json", beta)):
         print(f"{name}: {', '.join(idx['products'][PRODUCT]['versions']) or '(no versions)'}")
     if skipped:
-        print(f"without {ASSET} (not listed): {', '.join(skipped)}")
-
-
-def cmd_missing(args):
-    since = semver_key(args.since)
-    for rel in load_releases(args):
-        tag = rel.get("tag_name", "")
-        names = {a.get("name") for a in rel.get("assets", [])}
-        if (not rel.get("draft") and SEMVER.match(tag[1:]) and semver_key(tag[1:]) >= since
-                and ASSET not in names and DLL in names):
-            print(tag)
+        print(f"not listed (no {DLL}, or older than {MIN_VERSION}): {', '.join(skipped)}")
 
 
 def cmd_check(args):
@@ -502,10 +508,46 @@ Bingo boards and the [100% TMX](https://100tmx.com) project, inside TrackMania.
 - **Bingo in the game** - the board.
 """
 
+# The layout from 1.2.0 on: intro, rules, bold-led paragraphs, an Install section, the hashes
+# folded away.
+_BODY_120 = """## 100% TMX + Bingo 1.2.0
+
+Bingo boards and the [100% TMX](https://100tmx.com) project, inside TrackMania.
+
+---
+
+### Top 10
+
+**The TMX top 10** for the current map.
+
+---
+
+### Install
+
+**With the ModLoader, updates itself:** add this line under `servers:` in `config.yaml`:
+
+```yaml
+  - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
+```
+
+**With the installer:** download `100TMX.zip` and run `100TMX-Installer.exe`.
+
+<details>
+<summary>SHA-256 checksums</summary>
+
+| File | SHA-256 |
+|---|---|
+| `100TMX.zip` | `00` |
+</details>
+
+## What's Changed
+* Something by @cheatoskar in https://github.com/cheatoskar/100-TMX-Bingo-Plugin/pull/6
+"""
+
 
 def cmd_selftest(args):
-    """A fake dist from a local DLL, fake releases (two stable, one pre-release, one without the
-    ModLoader zip, one draft), the index from them, then every check."""
+    """Fake releases from a local DLL (two stable, one pre-release, one older than MIN_VERSION, one
+    without the DLL, one draft), the index and its zips from them, then every check."""
     work = args.work or tempfile.mkdtemp(prefix="100tmx-mlserver-")
     dist = os.path.join(work, "dist")
     os.makedirs(dist, exist_ok=True)
@@ -528,30 +570,36 @@ def cmd_selftest(args):
     os.remove(zip_path + ".again")
     print(f"zip: {zip_path} ({os.path.getsize(zip_path)} bytes, sha256 {digest})")
 
-    def release(tag, pre, with_zip, body):
-        assets = [{"name": DLL, "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{DLL}"}]
-        if with_zip:
-            assets.append({"name": ASSET, "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{ASSET}"})
+    def release(tag, pre, body, with_dll=True):
+        assets = [{"name": "SHA256SUMS.txt", "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/SHA256SUMS.txt"}]
+        if with_dll:
+            assets.append({"name": DLL, "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{DLL}"})
         return {"tag_name": tag, "prerelease": pre, "draft": False, "body": body,
                 "html_url": f"https://github.com/{REPO}/releases/tag/{tag}", "assets": assets}
 
-    releases = [release("v1.2.0-beta.1", True, True, "Notes for the beta\n\n### SHA-256\n| x |"),
-                release("v1.1.0", False, True, _BODY_110), release("v1.0.0", False, True, _BODY_100),
-                release("v0.9.5", False, False, "old"), {"tag_name": "v1.3.0", "draft": True, "assets": []}]
+    releases = [release("v1.2.0-beta.1", True, "Notes for the beta\n\n<details>\n| x |"),
+                release("v1.2.0", False, _BODY_120), release("v1.1.0", False, _BODY_110),
+                release("v1.0.0", False, _BODY_100), release("v1.1.1", False, "no DLL", with_dll=False),
+                {"tag_name": "v1.3.0", "draft": True, "assets": []}]
     rel_path = os.path.join(work, "releases.json")
     write_json(rel_path, releases)
-    local = [f"{a['browser_download_url']}={zip_path}" for r in releases for a in r["assets"] if a["name"] == ASSET]
+    local = [f"{a['browser_download_url']}={dll}" for r in releases for a in r["assets"] if a["name"] == DLL]
     site = os.path.join(work, "site", "modloader")
-    ns = argparse.Namespace(releases=rel_path, repo=REPO, installer=INSTALLER, local=local, cache=None, out_dir=site)
+    base = default_base_url(REPO)
+    ns = argparse.Namespace(releases=rel_path, repo=REPO, installer=INSTALLER, local=local, cache=None, out_dir=site,
+                            base_url=base)
     cmd_index(ns)
     stable = json.load(open(os.path.join(site, "index.json"), encoding="utf-8"))
     beta = json.load(open(os.path.join(site, "beta", "index.json"), encoding="utf-8"))
     problems = []
     prod = stable["products"][PRODUCT]
-    if list(prod["versions"]) != ["1.0.0", "1.1.0"]:
-        problems.append("stable index must list 1.0.0 and 1.1.0, ascending")
-    if list(beta["products"][PRODUCT]["versions"]) != ["1.0.0", "1.1.0", "1.2.0-beta.1"]:
-        problems.append("beta index must list 1.0.0, 1.1.0 and 1.2.0-beta.1, ascending")
+    if list(prod["versions"]) != ["1.1.0", "1.2.0"]:
+        problems.append("stable index must list 1.1.0 and 1.2.0, ascending")
+    if list(beta["products"][PRODUCT]["versions"]) != ["1.1.0", "1.2.0-beta.1", "1.2.0"]:
+        problems.append("beta index must list 1.1.0, 1.2.0-beta.1 and 1.2.0, ascending")
+    for v, e in beta["products"][PRODUCT]["versions"].items():
+        if e["download_link"] != f"{base}/{FILES}/{v}/{ASSET}" or e["hash_sha256"] != digest:
+            problems.append(f"{v}: the zip must be served next to the index and be the DLL's zip")
     if prod.get("name") != PRODUCT or prod.get("icon_link") != ICON_URL or prod.get("author") != "cheatoskar":
         problems.append("product metadata not taken from install-modloader.ps1 / icon not on Pages")
     if prod["versions"]["1.1.0"]["executable"] != DLL or prod["versions"]["1.1.0"]["dependencies"] != [
@@ -564,12 +612,15 @@ def cmd_selftest(args):
         problems.append("1.1.0 changelog still has the download paragraph, hash table or GitHub's notes")
     if "Release notes: https://github.com/" not in cl:
         problems.append("changelog has no release link")
-    cl100 = prod["versions"]["1.0.0"]["changelog"]
-    if "What it does:" not in cl100 or "all you need" in cl100 or "Bingo boards and the 100% TMX project" not in cl100:
-        problems.append("1.0.0 changelog: keep the intro and 'What it does', drop 'Download'")
+    cl120 = prod["versions"]["1.2.0"]["changelog"]
+    if "Bingo boards and the 100% TMX project" not in cl120 or "Top 10:" not in cl120:
+        problems.append("1.2.0 changelog: keep the intro and the sections")
+    if any(s in cl120 for s in ("config.yaml", "100TMX-Installer", "| File |", "---", "<details>")):
+        problems.append("1.2.0 changelog still has the install section, the rules or the hash table")
     for p in problems:
         print("ERROR:", p)
-    zips = [f"{u.split('=', 1)[0]}={zip_path}" for u in local]
+    zips = [f"{e['download_link']}={os.path.join(site, FILES, v, ASSET)}"
+            for v, e in beta["products"][PRODUCT]["versions"].items()]
     loader = args.loader_d_ts or default_loader_d_ts()
     installed = args.installed
     if installed is None and os.environ.get("LOCALAPPDATA"):
@@ -603,12 +654,9 @@ def main():
     releases_args(p)
     p.add_argument("--out-dir", required=True, help="writes <dir>/index.json and <dir>/beta/index.json")
     p.add_argument("--installer", default=INSTALLER, help="install-modloader.ps1 (product and version metadata)")
-    p.add_argument("--local", action="append", help="<download_link>=<local zip>: hash this file instead of downloading")
+    p.add_argument("--local", action="append", help="<DLL download link>=<local DLL>: use this file instead of downloading")
     p.add_argument("--cache", help="download cache folder")
-
-    p = sub.add_parser("missing")
-    releases_args(p)
-    p.add_argument("--since", default=BACKFILL_SINCE, help=f"oldest version to list (default {BACKFILL_SINCE})")
+    p.add_argument("--base-url", help="the URL GitHub Pages serves --out-dir at (default: https://<owner>.github.io/<repo>/modloader)")
 
     p = sub.add_parser("check")
     p.add_argument("index", nargs="+")
@@ -625,7 +673,7 @@ def main():
     p.add_argument("--installed")
 
     args = ap.parse_args()
-    rc = {"zip": cmd_zip, "index": cmd_index, "missing": cmd_missing, "check": cmd_check, "selftest": cmd_selftest}[args.cmd](args)
+    rc = {"zip": cmd_zip, "index": cmd_index, "check": cmd_check, "selftest": cmd_selftest}[args.cmd](args)
     sys.exit(rc or 0)
 
 
