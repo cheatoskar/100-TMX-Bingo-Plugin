@@ -1,0 +1,28 @@
+{
+  "api": 1,
+  "game": "TmForever",
+  "products": {
+    "100% TMX + Bingo": {
+      "name": "100% TMX + Bingo",
+      "author": "cheatoskar",
+      "type": "modification",
+      "description": "Bingo boards on screen while you drive - your tiles, the time to beat, and a button that starts any of their maps. Plus: is this map still open for the 100% TMX project, what is it worth, who finished it.",
+      "icon_link": "https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/icon.png",
+      "homepage": "https://100tmx.com/",
+      "versions": {
+        "1.1.0": {
+          "executable": "100TMX.dll",
+          "dependencies": [
+            {
+              "id": "CoreMod",
+              "version": "^1.0.1"
+            }
+          ],
+          "download_link": "https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/files/1.1.0/100TMX-ModLoader-server.zip",
+          "hash_sha256": "940c99850db1eded37b439987b23921fb9672ffc3e8b6b82d206ab3915df3aa9",
+          "changelog": "Bingo boards from 100tmx.com and the 100% TMX project status, right inside TrackMania Nations & United Forever.\n\nWhat's new:\n\nA new look. The menu and the panels now look like the TM Vibrant Shaders menu, and both mods run side by side: whichever menu is on top gets the mouse, and Ctrl+F9 stays with the shaders.\n\nPanels you can arrange. Fold them (-), close them (x) and resize them by dragging the bottom-right corner.\n\nThe TMX top 10 for the current map, and where your run would place in it.\n\nUpdate notice. The mod tells you when a new version is out. You can turn that off under About.\n\nYour own time, always. On online servers the mod sometimes showed another player's time. It now always reads yours.\n\nAlso fixed: smeared map pictures and disappearing text on some maps, losing track of the race in long sessions, uninstalling breaking the ModLoader profile, and the Take the tile button staying after the tile is yours. The mod runs on Windows 7 with update KB3140245, and the connection token in config.ini is now encrypted for your Windows account.\n\nRelease notes: https://github.com/cheatoskar/100-TMX-Bingo-Plugin/releases/tag/v1.1.0"
+        }
+      }
+    }
+  }
+}
