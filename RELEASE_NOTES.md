@@ -1,4 +1,4 @@
-## 100 TMX Bingo Plugin 1.1.0
+## 100 TMX Bingo Plugin 1.1.1
 
 Bingo boards from [100tmx.com](https://100tmx.com) and the 100% TMX project status, right inside **TrackMania Nations & United Forever**.
 
@@ -8,17 +8,9 @@ Bingo boards from [100tmx.com](https://100tmx.com) and the 100% TMX project stat
 
 ### What's new
 
-**A new look.** The menu and the panels now look like the TM Vibrant Shaders menu, and both mods run side by side: whichever menu is on top gets the mouse, and `Ctrl+F9` stays with the shaders.
+**New name.** The mod is now called **100 TMX Bingo Plugin** in the ModLoader and the installer. Nothing else changes: your settings, your ticked profiles and the updates stay as they are, because the mod's folder keeps its old name (`100% TMX + Bingo`).
 
-**Panels you can arrange.** Fold them (**-**), close them (**x**) and resize them by dragging the bottom-right corner.
-
-**The TMX top 10** for the current map, and where your run would place in it.
-
-**Update notice.** The mod tells you when a new version is out. You can turn that off under **About**.
-
-**Your own time, always.** On online servers the mod sometimes showed another player's time. It now always reads yours.
-
-Also fixed: smeared map pictures and disappearing text on some maps, losing track of the race in long sessions, uninstalling breaking the ModLoader profile, and the *Take the tile* button staying after the tile is yours. The mod runs on Windows 7 with update KB3140245, and the connection token in `config.ini` is now encrypted for your Windows account.
+The new look, the panels you can arrange, the TMX top 10 and the update notice came with [1.1.0](https://github.com/cheatoskar/100-TMX-Bingo-Plugin/releases/tag/v1.1.0).
 
 ---
 
