@@ -1,4 +1,4 @@
-# 100% TMX + Bingo
+# 100 TMX Bingo Plugin
 
 An overlay for TrackMania Nations Forever and United Forever. It shows
 [100tmx.com](https://100tmx.com) bingo boards in the game, and tells you whether
@@ -20,7 +20,7 @@ send the link to a few friends, and race them for the evening.
    [Install with ModLoader](#install-with-modloader-recommended-auto-updates)
    (or download `100TMX.zip` from [Releases](../../releases/latest), extract it
    and run `100TMX-Installer.exe`).
-3. Open the ModLoader, tick **100% TMX + Bingo** and start the game.
+3. Open the ModLoader, tick **100 TMX Bingo Plugin** and start the game.
 4. Press **F9 → Connection → Connect** and approve the code on the page that
    opens.
 5. Join a board on [100tmx.com/events/bingo](https://100tmx.com/events/bingo),
@@ -45,12 +45,13 @@ own. Nothing to download, nothing to run.
      - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
    ```
 
-4. Start the ModLoader. **100% TMX + Bingo** appears in its list; pick it, tick
+4. Start the ModLoader. **100 TMX Bingo Plugin** appears in its list; pick it, tick
    it in your profile and start the game.
 
 New versions then arrive through the ModLoader's auto update (*Auto Update* in
 its settings). A copy installed earlier with the installer lives in the same
-folder (`products\100% TMX + Bingo\<version>`); the ModLoader keeps it and adds
+folder (`products\100% TMX + Bingo\<version>`; the folder keeps the mod's old name, so
+updates keep arriving); the ModLoader keeps it and adds
 newer versions next to it. Old versions can be removed in the ModLoader.
 
 ### With the installer or by hand

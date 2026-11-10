@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ModLoader (TMLoader) update server for 100% TMX + Bingo.
+"""ModLoader (TMLoader) update server for 100 TMX Bingo Plugin (product folder "100% TMX + Bingo").
 
 A ModLoader server is a folder URL whose index.json lists products and their versions
 (format of https://fullspeed.mooo.com/modloader/index.json, api 1). For every version the
@@ -34,6 +34,7 @@ import zipfile
 
 REPO = "cheatoskar/100-TMX-Bingo-Plugin"
 PRODUCT = "100% TMX + Bingo"  # the product folder name; install-modloader.ps1 uses the same folder
+DISPLAY_NAME = "100 TMX Bingo Plugin"  # the name the ModLoader shows (the folder keeps the old name, so updates keep arriving)
 ASSET = "100TMX-ModLoader-server.zip"  # not 100TMX-ModLoader.zip: v0.9.5 carries one with a folder inside
 FILES = "files"  # <index folder>/files/<version>/100TMX-ModLoader-server.zip
 DLL = "100TMX.dll"
@@ -75,8 +76,8 @@ def read_metadata(path=INSTALLER):
         m = re.match(r"^([a-z_]+):\s*(.*)$", line.rstrip())
         if m and m.group(2):
             product[m.group(1)] = _yaml_scalar(m.group(2))
-    if product.get("name") != PRODUCT:
-        raise SystemExit(f"install-modloader.ps1: product name {product.get('name')!r} != {PRODUCT!r}")
+    if product.get("name") != DISPLAY_NAME:
+        raise SystemExit(f"install-modloader.ps1: product name {product.get('name')!r} != {DISPLAY_NAME!r}")
     product["icon_link"] = ICON_URL
 
     vtext = _here_string(text, "target")
@@ -135,7 +136,7 @@ def semver_key(version):
 def release_changes(body):
     """The part of a release body that says what changed, for people who don't download by hand.
 
-    The body is RELEASE_NOTES.md (a '## 100% TMX + Bingo x.y.z' title, a paragraph or a
+    The body is RELEASE_NOTES.md (a '## 100 TMX Bingo Plugin x.y.z' title, a paragraph or a
     '### Download' section on installing by hand, '### ...' sections), then the hash table
     ('### SHA-256') and GitHub's generated '## What's Changed'. Kept: the '###' sections other
     than download/install ones; the text before the first of them only if it isn't about the
@@ -600,7 +601,7 @@ def cmd_selftest(args):
     for v, e in beta["products"][PRODUCT]["versions"].items():
         if e["download_link"] != f"{base}/{FILES}/{v}/{ASSET}" or e["hash_sha256"] != digest:
             problems.append(f"{v}: the zip must be served next to the index and be the DLL's zip")
-    if prod.get("name") != PRODUCT or prod.get("icon_link") != ICON_URL or prod.get("author") != "cheatoskar":
+    if prod.get("name") != DISPLAY_NAME or prod.get("icon_link") != ICON_URL or prod.get("author") != "cheatoskar":
         problems.append("product metadata not taken from install-modloader.ps1 / icon not on Pages")
     if prod["versions"]["1.1.0"]["executable"] != DLL or prod["versions"]["1.1.0"]["dependencies"] != [
             {"id": "CoreMod", "version": "^1.0.1"}]:

@@ -167,7 +167,7 @@ void fillState(const std::string& scene) {
       s.update.status = UpdateInfo::Status::Available;
       s.update.version = "1.1.0";
       s.update.url = "https://github.com/cheatoskar/100-TMX-Bingo-Plugin/releases/tag/v1.1.0";
-      s.update.title = "100% TMX + Bingo 1.1.0 - a menu in the look of TM Vibrant Shaders";
+      s.update.title = "100 TMX Bingo Plugin 1.1.0 - a menu in the look of TM Vibrant Shaders";
     }
     if (scene == "connection") {
       s.linked = false;
