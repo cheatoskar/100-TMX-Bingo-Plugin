@@ -67,7 +67,7 @@ if (-not $packaging) {
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 [System.IO.File]::WriteAllText("$product\description.yaml", @"
-name: 100% TMX + Bingo
+name: 100 TMX Bingo Plugin
 author: cheatoskar
 type: modification
 homepage: 'https://100tmx.com/'
@@ -87,8 +87,8 @@ changelog: '- The bingo panel, map status, and map marks.'
 
 Copy-Item $Dll "$target\100TMX.dll" -Force
 
-Write-Host "Installed 100% TMX + Bingo $Version to:" -ForegroundColor Green
+Write-Host "Installed 100 TMX Bingo Plugin $Version to:" -ForegroundColor Green
 Write-Host "  $target"
 Write-Host ""
-Write-Host 'Now open the ModLoader, tick "100% TMX + Bingo" in the list, and start the game.'
+Write-Host 'Now open the ModLoader, tick "100 TMX Bingo Plugin" in the list, and start the game.'
 Write-Host "In game: F9 -> Connection -> Connect."

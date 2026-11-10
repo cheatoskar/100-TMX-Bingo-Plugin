@@ -1,4 +1,4 @@
-100% TMX + Bingo - overlay for TrackMania Nations / United Forever
+100 TMX Bingo Plugin - overlay for TrackMania Nations / United Forever
 https://100tmx.com  -  https://github.com/cheatoskar/100-TMX-Bingo-Plugin
 
 ======================================================================
@@ -17,12 +17,12 @@ INSTALL - with automatic updates (recommended)
   3. Add this line under "servers:" (two spaces in front, like the
      lines already there) and save:
        - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
-  4. Start the ModLoader, tick "100% TMX + Bingo", start the game.
+  4. Start the ModLoader, tick "100 TMX Bingo Plugin", start the game.
 
 INSTALL - the easy way
   1. Unzip this whole zip (right-click it, "Extract All...").
   2. Run 100TMX-Installer.exe from the unzipped folder.
-  3. Open the ModLoader, tick "100% TMX + Bingo", start the game.
+  3. Open the ModLoader, tick "100 TMX Bingo Plugin", start the game.
 
 INSTALL - by hand, no .exe
   1. Unzip this zip.
@@ -30,7 +30,7 @@ INSTALL - by hand, no .exe
        %LOCALAPPDATA%\TMLoader\database\TmForever\products
   3. Copy the folder "100% TMX + Bingo" from the zip into it.
      If it is already there, let Windows merge the folders.
-  4. Open the ModLoader, tick "100% TMX + Bingo", start the game.
+  4. Open the ModLoader, tick "100 TMX Bingo Plugin", start the game.
 
 FIRST START
   Press F9 in game -> Connection -> Connect, and approve the code on
@@ -66,12 +66,12 @@ INSTALLIEREN - mit automatischen Updates (empfohlen)
   3. Diese Zeile unter "servers:" einfügen (zwei Leerzeichen davor,
      wie bei den Zeilen dort) und speichern:
        - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
-  4. ModLoader starten, "100% TMX + Bingo" anhaken, Spiel starten.
+  4. ModLoader starten, "100 TMX Bingo Plugin" anhaken, Spiel starten.
 
 INSTALLIEREN - der einfache Weg
   1. Die ganze ZIP entpacken (Rechtsklick, "Alle extrahieren...").
   2. 100TMX-Installer.exe aus dem entpackten Ordner starten.
-  3. ModLoader öffnen, "100% TMX + Bingo" anhaken, Spiel starten.
+  3. ModLoader öffnen, "100 TMX Bingo Plugin" anhaken, Spiel starten.
 
 INSTALLIEREN - von Hand, ohne .exe
   1. Die ZIP entpacken.
@@ -79,7 +79,7 @@ INSTALLIEREN - von Hand, ohne .exe
        %LOCALAPPDATA%\TMLoader\database\TmForever\products
   3. Den Ordner "100% TMX + Bingo" aus der ZIP dort hineinkopieren.
      Falls er schon existiert, die Ordner zusammenführen lassen.
-  4. ModLoader öffnen, "100% TMX + Bingo" anhaken, Spiel starten.
+  4. ModLoader öffnen, "100 TMX Bingo Plugin" anhaken, Spiel starten.
 
 ERSTER START
   Im Spiel F9 -> Connection -> Connect drücken und den Code auf der

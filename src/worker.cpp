@@ -315,7 +315,7 @@ void checkUpdate() {
     const std::string page = data.str("html_url");
     info.url = page.rfind("https://github.com/", 0) == 0 ? page
                                                           : std::string("https://github.com/") + kRepository + "/releases";
-    // The notes open with "## 100% TMX + Bingo 1.1.0 - what it is about";
+    // The notes open with "## 100 TMX Bingo Plugin 1.1.0 - what it is about";
     // that line is the summary. The rest is Markdown for a web page.
     const std::string body = data.str("body");
     const size_t start = body.find_first_not_of("#\r\n ");

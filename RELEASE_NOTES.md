@@ -1,4 +1,4 @@
-## 100% TMX + Bingo 1.1.0
+## 100 TMX Bingo Plugin 1.1.0
 
 Bingo boards from [100tmx.com](https://100tmx.com) and the 100% TMX project status, right inside **TrackMania Nations & United Forever**.
 
@@ -30,7 +30,7 @@ Also fixed: smeared map pictures and disappearing text on some maps, losing trac
   - 'https://cheatoskar.github.io/100-TMX-Bingo-Plugin/modloader/'
 ```
 
-Then tick *100% TMX + Bingo* in your profile. New versions arrive on their own from then on.
+Then tick *100 TMX Bingo Plugin* in your profile. New versions arrive on their own from then on.
 
 **With the installer:** download `100TMX.zip`, extract it and run `100TMX-Installer.exe` (or copy the folder by hand, see `README.txt`).
 
