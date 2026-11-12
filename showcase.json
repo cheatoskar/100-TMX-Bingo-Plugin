@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "theme": { "accent": "cyan" },
+  "blocks": [
+    {
+      "type": "hero",
+      "title": "100 TMX Bingo Plugin",
+      "tagline": "100% TMX and bingo boards inside TrackMania Nations Forever and United Forever.",
+      "image": "https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/cover.jpg",
+      "badges": ["TMNF, TMUF", "TMLoader mod"]
+    },
+    {
+      "type": "features",
+      "items": [
+        { "icon": "flag", "title": "Bingo in the game", "text": "Your board from 100tmx.com shows in the game, next to the map you drive." },
+        { "icon": "target", "title": "100% TMX status", "text": "Tells you if the map was ever finished on TMX and what it is worth to the 100% project." },
+        { "icon": "users", "title": "Race your friends", "text": "Make a board, send the link to a few friends and race for the evening." },
+        { "icon": "refresh-cw", "title": "Updates itself", "text": "Add the update server to the ModLoader once, new versions arrive on their own." }
+      ]
+    },
+    {
+      "type": "gallery",
+      "title": "In the game and on the site",
+      "images": [
+        { "url": "https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/cover.jpg", "caption": "The 100% TMX and Bingo panels next to the menu" },
+        { "url": "https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/BingoPageonSite.png", "caption": "A bingo board on 100tmx.com" },
+        { "url": "https://raw.githubusercontent.com/cheatoskar/100-TMX-Bingo-Plugin/main/images/SettingsModalIngame.png", "caption": "Settings in the game" }
+      ]
+    },
+    {
+      "type": "text",
+      "title": "Quick start",
+      "markdown": "1. Install the TrackMania ModLoader and tick **100 TMX Bingo Plugin** in your profile.\n2. Start the game and press **F9**, then *Connection* and *Connect*. Approve the code on the page that opens.\n3. Join a board on [100tmx.com](https://100tmx.com/events/bingo), pick it on the *Bingo* page in the game and drive."
+    },
+    { "type": "hotkeys", "rows": [{ "keys": "F9", "action": "Open the menu of the mod" }] },
+    {
+      "type": "compat",
+      "rows": [
+        { "game": "tmnf", "status": "works" },
+        { "game": "tmuf", "status": "works" }
+      ]
+    },
+    {
+      "type": "cta",
+      "buttons": [
+        { "kind": "link", "label": "Download", "url": "https://github.com/cheatoskar/100-TMX-Bingo-Plugin/releases/latest" },
+        { "kind": "link", "label": "Bingo on 100tmx.com", "url": "https://100tmx.com/events/bingo", "style": "ghost" }
+      ]
+    }
+  ]
+}
