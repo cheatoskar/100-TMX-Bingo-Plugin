@@ -1,3 +1,5 @@
+<img src="docs/logo/logo.svg" width="96" align="right" alt="100 TMX Bingo Plugin logo">
+
 # 100 TMX Bingo Plugin
 
 An overlay for TrackMania Nations Forever and United Forever. It shows
